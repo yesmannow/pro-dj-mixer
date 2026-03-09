@@ -78,6 +78,11 @@ export function Deck({ deckId }: DeckProps) {
     // So deltaTime = deltaAngle / 360 * 1.8
     const timeDelta = (deltaAngle / 360) * 1.8;
     scrubTrack(timeDelta);
+
+    // Subtle haptic feedback when scratching
+    if (Math.abs(deltaAngle) > 2 && navigator.vibrate) {
+      navigator.vibrate(2);
+    }
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -256,6 +261,28 @@ export function Deck({ deckId }: DeckProps) {
               onPointerCancel={handlePointerUp}
               className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
             >
+              {/* Progress Ring */}
+              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
+                <circle
+                  cx="96"
+                  cy="96"
+                  r="90"
+                  fill="transparent"
+                  stroke="rgba(0, 242, 255, 0.1)"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx="96"
+                  cy="96"
+                  r="90"
+                  fill="transparent"
+                  stroke="#00f2ff"
+                  strokeWidth="2"
+                  strokeDasharray={2 * Math.PI * 90}
+                  strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))}
+                  className="transition-all duration-75 ease-linear"
+                />
+              </svg>
               <div 
                 className="absolute inset-0 rounded-full border border-accent/10"
                 style={{ transform: `rotate(${rotation}deg)` }}
@@ -306,6 +333,28 @@ export function Deck({ deckId }: DeckProps) {
               onPointerCancel={handlePointerUp}
               className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
             >
+              {/* Progress Ring */}
+              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
+                <circle
+                  cx="96"
+                  cy="96"
+                  r="90"
+                  fill="transparent"
+                  stroke="rgba(0, 242, 255, 0.1)"
+                  strokeWidth="2"
+                />
+                <circle
+                  cx="96"
+                  cy="96"
+                  r="90"
+                  fill="transparent"
+                  stroke="#00f2ff"
+                  strokeWidth="2"
+                  strokeDasharray={2 * Math.PI * 90}
+                  strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))}
+                  className="transition-all duration-75 ease-linear"
+                />
+              </svg>
               <div 
                 className="absolute inset-0 rounded-full border border-accent/10"
                 style={{ transform: `rotate(${rotation}deg)` }}

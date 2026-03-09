@@ -5,6 +5,63 @@ import { clsx } from 'clsx';
 import { Play, Pause, RotateCcw, Repeat } from 'lucide-react';
 import { AudioEngine } from '@/lib/audioEngine';
 
+function VolumeKnob({ value, onChange }: { value: number; onChange: (val: number) => void }) {
+  const isDragging = useRef(false);
+  const startY = useRef(0);
+  const startValue = useRef(0);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging.current) return;
+    const deltaY = startY.current - e.clientY;
+    let newValue = startValue.current + deltaY / 50;
+    newValue = Math.max(0, Math.min(1, newValue));
+    onChange(newValue);
+  }, [onChange]);
+
+  function handleMouseUp() {
+    isDragging.current = false;
+    document.removeEventListener('mousemove', handleMouseMove);
+    document.removeEventListener('mouseup', handleMouseUp);
+  }
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    isDragging.current = true;
+    startY.current = e.clientY;
+    startValue.current = value;
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onChange(0.8); // Default volume
+  };
+
+  // Rotation from -135deg to +135deg
+  // value is 0 to 1, so map to -135 to 135
+  const rotation = -135 + value * 270;
+
+  return (
+    <div className="flex flex-col items-center absolute top-2 right-2 z-30 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div
+        className="w-5 h-5 rounded-full bg-slate-800 border border-slate-600 relative cursor-ns-resize"
+        onMouseDown={handleMouseDown}
+        onDoubleClick={handleDoubleClick}
+        title="Volume"
+      >
+        {/* Indicator */}
+        <div
+          className="absolute inset-0 z-20"
+          style={{ transform: `rotate(${rotation}deg)` }}
+        >
+          <div className="absolute top-0.5 left-1/2 -translate-x-1/2 w-0.5 h-1.5 rounded-full bg-accent shadow-[0_0_2px_#00f2ff]"></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const SAMPLE_PACKS = {
   'Cyber FX': [
     { id: 1, name: 'Laser', type: 'oneshot', color: 'accent', freq: 800 },
@@ -54,33 +111,42 @@ const getDotClass = (colorName: string, isPlaying: boolean) => {
   }
 };
 
+interface PadState {
+  isPlaying: boolean;
+  isLooping: boolean;
+  volume: number;
+  loopStart: number; // 0 to 1
+  loopEnd: number; // 0 to 1
+}
+
 export function Sampler() {
   const [activePack, setActivePack] = useState<keyof typeof SAMPLE_PACKS>('Cyber FX');
   
   // Initialize pad states
-  const [padStates, setPadStates] = useState<Record<number, { isPlaying: boolean, isLooping: boolean }>>(() => {
-    const initialStates: Record<number, { isPlaying: boolean, isLooping: boolean }> = {};
+  const [padStates, setPadStates] = useState<Record<number, PadState>>(() => {
+    const initialStates: Record<number, PadState> = {};
     SAMPLE_PACKS['Cyber FX'].forEach(pad => {
-      initialStates[pad.id] = { isPlaying: false, isLooping: pad.type === 'loop' };
+      initialStates[pad.id] = { isPlaying: false, isLooping: pad.type === 'loop', volume: 0.8, loopStart: 0, loopEnd: 1 };
     });
     return initialStates;
   });
   
   // Store active audio nodes so we can stop them
-  const activeNodes = useRef<Record<number, { osc: OscillatorNode, gain: GainNode }>>({});
+  const activeNodes = useRef<Record<number, { osc: OscillatorNode, gain: GainNode, interval?: NodeJS.Timeout }>>({});
 
   const handlePackChange = (newPack: keyof typeof SAMPLE_PACKS) => {
     setActivePack(newPack);
-    const newStates: Record<number, { isPlaying: boolean, isLooping: boolean }> = {};
+    const newStates: Record<number, PadState> = {};
     SAMPLE_PACKS[newPack].forEach(pad => {
-      newStates[pad.id] = { isPlaying: false, isLooping: pad.type === 'loop' };
+      newStates[pad.id] = { isPlaying: false, isLooping: pad.type === 'loop', volume: 0.8, loopStart: 0, loopEnd: 1 };
     });
     setPadStates(newStates);
     
     // Stop all active audio
-    Object.values(activeNodes.current).forEach(({ osc, gain }) => {
+    Object.values(activeNodes.current).forEach(({ osc, gain, interval }) => {
       try { osc.stop(); } catch (e) {}
       try { gain.disconnect(); } catch (e) {}
+      if (interval) clearInterval(interval);
     });
     activeNodes.current = {};
   };
@@ -91,11 +157,14 @@ export function Sampler() {
         activeNodes.current[id].osc.stop();
         activeNodes.current[id].gain.disconnect();
       } catch (e) {}
+      if (activeNodes.current[id].interval) {
+        clearInterval(activeNodes.current[id].interval);
+      }
       delete activeNodes.current[id];
     }
   }, []);
 
-  const playAudio = useCallback((id: number, pad: any, isLooping: boolean) => {
+  const playAudio = useCallback((id: number, pad: any, state: PadState) => {
     stopAudio(id); // Stop existing if any
     
     try {
@@ -103,51 +172,82 @@ export function Sampler() {
       engine.resume();
       const ctx = engine.context;
       
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      
-      const now = ctx.currentTime;
-      
-      // Simple synthesis based on pad name
-      if (pad.name === 'Kick' || pad.name === 'Impact' || pad.name === 'Sub Drop') {
-        osc.frequency.setValueAtTime(pad.freq, now);
-        osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
-        gain.gain.setValueAtTime(1, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-      } else if (pad.name === 'Hat' || pad.name === 'Ride' || pad.name === 'Crash') {
-        osc.type = 'square';
-        osc.frequency.setValueAtTime(pad.freq, now);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-      } else if (pad.name === 'Laser' || pad.name === 'Sweep') {
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(pad.freq, now);
-        osc.frequency.exponentialRampToValueAtTime(100, now + 0.3);
-        gain.gain.setValueAtTime(0.5, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-      } else {
-        // Default synth
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(pad.freq, now);
-        gain.gain.setValueAtTime(0.5, now);
-        if (!isLooping) {
+      const playOscillator = () => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        
+        const now = ctx.currentTime;
+        const baseVol = state.volume;
+        
+        // Simple synthesis based on pad name
+        if (pad.name === 'Kick' || pad.name === 'Impact' || pad.name === 'Sub Drop') {
+          osc.frequency.setValueAtTime(pad.freq, now);
+          osc.frequency.exponentialRampToValueAtTime(0.01, now + 0.5);
+          gain.gain.setValueAtTime(baseVol, now);
           gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+        } else if (pad.name === 'Hat' || pad.name === 'Ride' || pad.name === 'Crash') {
+          osc.type = 'square';
+          osc.frequency.setValueAtTime(pad.freq, now);
+          gain.gain.setValueAtTime(baseVol * 0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+        } else if (pad.name === 'Laser' || pad.name === 'Sweep') {
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(pad.freq, now);
+          osc.frequency.exponentialRampToValueAtTime(100, now + 0.3);
+          gain.gain.setValueAtTime(baseVol * 0.5, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+        } else {
+          // Default synth
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(pad.freq, now);
+          gain.gain.setValueAtTime(baseVol * 0.5, now);
+          if (!state.isLooping) {
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+          }
         }
+        
+        osc.start(now);
+        
+        if (!state.isLooping) {
+          osc.stop(now + 0.5);
+        }
+        
+        return { osc, gain };
+      };
+
+      const { osc, gain } = playOscillator();
+      
+      let interval: NodeJS.Timeout | undefined;
+
+      if (state.isLooping) {
+        // Simulate looping by re-triggering the oscillator based on loop points
+        // Let's say a full loop is 1 second.
+        const loopDurationMs = 1000;
+        const startMs = state.loopStart * loopDurationMs;
+        const endMs = state.loopEnd * loopDurationMs;
+        const durationMs = Math.max(50, endMs - startMs);
+
+        interval = setInterval(() => {
+          // Stop current
+          if (activeNodes.current[id]) {
+            try { activeNodes.current[id].osc.stop(); } catch(e) {}
+          }
+          // Play new
+          const newNodes = playOscillator();
+          if (activeNodes.current[id]) {
+            activeNodes.current[id].osc = newNodes.osc;
+            activeNodes.current[id].gain = newNodes.gain;
+          }
+        }, durationMs);
       }
       
-      osc.start(now);
-      
-      if (!isLooping) {
-        osc.stop(now + 0.5);
-      }
-      
-      activeNodes.current[id] = { osc, gain };
+      activeNodes.current[id] = { osc, gain, interval };
       
       // Auto-release state if not looping
-      if (!isLooping) {
+      if (!state.isLooping) {
         setTimeout(() => {
           setPadStates(prev => ({
             ...prev,
@@ -163,11 +263,11 @@ export function Sampler() {
 
   const handlePlay = useCallback((id: number, pad: any) => {
     setPadStates(prev => {
-      const state = prev[id] || { isPlaying: false, isLooping: pad.type === 'loop' };
+      const state = prev[id] || { isPlaying: false, isLooping: pad.type === 'loop', volume: 0.8, loopStart: 0, loopEnd: 1 };
       const newIsPlaying = !state.isPlaying;
       
       if (newIsPlaying) {
-        playAudio(id, pad, state.isLooping);
+        playAudio(id, pad, { ...state, isPlaying: newIsPlaying });
       } else {
         stopAudio(id);
       }
@@ -179,18 +279,57 @@ export function Sampler() {
   const handleCue = useCallback((id: number, pad: any) => {
     // Cue resets playback and plays from start
     stopAudio(id);
-    setPadStates(prev => ({
-      ...prev,
-      [id]: { ...prev[id], isPlaying: true }
-    }));
-    playAudio(id, pad, padStates[id]?.isLooping || false);
-  }, [playAudio, stopAudio, padStates]);
+    setPadStates(prev => {
+      const state = prev[id];
+      playAudio(id, pad, { ...state, isPlaying: true });
+      return {
+        ...prev,
+        [id]: { ...state, isPlaying: true }
+      };
+    });
+  }, [playAudio, stopAudio]);
 
   const handleLoopToggle = useCallback((id: number) => {
     setPadStates(prev => {
       const state = prev[id];
       if (!state) return prev;
       return { ...prev, [id]: { ...state, isLooping: !state.isLooping } };
+    });
+  }, []);
+
+  const handleVolumeChange = useCallback((id: number, volume: number) => {
+    setPadStates(prev => {
+      const state = prev[id];
+      if (!state) return prev;
+      
+      // Update active node volume immediately
+      if (activeNodes.current[id] && activeNodes.current[id].gain) {
+        activeNodes.current[id].gain.gain.setTargetAtTime(
+          volume, 
+          AudioEngine.getInstance().context.currentTime, 
+          0.05
+        );
+      }
+      
+      return { ...prev, [id]: { ...state, volume } };
+    });
+  }, []);
+
+  const handleLoopPointChange = useCallback((id: number, type: 'start' | 'end', value: number) => {
+    setPadStates(prev => {
+      const state = prev[id];
+      if (!state) return prev;
+      
+      let newStart = state.loopStart;
+      let newEnd = state.loopEnd;
+      
+      if (type === 'start') {
+        newStart = Math.min(value, newEnd - 0.1); // Ensure start is before end
+      } else {
+        newEnd = Math.max(value, newStart + 0.1); // Ensure end is after start
+      }
+      
+      return { ...prev, [id]: { ...state, loopStart: newStart, loopEnd: newEnd } };
     });
   }, []);
 
@@ -214,7 +353,7 @@ export function Sampler() {
       
       <div className="grid grid-cols-4 gap-4 flex-1">
         {SAMPLE_PACKS[activePack].map(pad => {
-          const state = padStates[pad.id] || { isPlaying: false, isLooping: pad.type === 'loop' };
+          const state = padStates[pad.id] || { isPlaying: false, isLooping: pad.type === 'loop', volume: 0.8, loopStart: 0, loopEnd: 1 };
           const isPlaying = state.isPlaying;
           const isLooping = state.isLooping;
           
@@ -226,6 +365,8 @@ export function Sampler() {
                 getColorClasses(pad.color, isPlaying)
               )}
             >
+              <VolumeKnob value={state.volume} onChange={(val) => handleVolumeChange(pad.id, val)} />
+
               {/* Main Pad Area (Clickable) */}
               <div 
                 className="absolute inset-0 cursor-pointer z-0"
@@ -243,6 +384,38 @@ export function Sampler() {
                 )}>{pad.name}</span>
               </div>
               
+              {/* Loop Points Slider */}
+              {isLooping && (
+                <div className="absolute top-2 left-2 right-8 h-2 bg-slate-900/80 rounded-full z-30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center px-1">
+                  <input 
+                    type="range" 
+                    min="0" max="1" step="0.01" 
+                    value={state.loopStart} 
+                    onChange={(e) => handleLoopPointChange(pad.id, 'start', parseFloat(e.target.value))}
+                    className="absolute w-full h-full opacity-0 cursor-pointer z-40"
+                    title="Loop Start"
+                  />
+                  <input 
+                    type="range" 
+                    min="0" max="1" step="0.01" 
+                    value={state.loopEnd} 
+                    onChange={(e) => handleLoopPointChange(pad.id, 'end', parseFloat(e.target.value))}
+                    className="absolute w-full h-full opacity-0 cursor-pointer z-40"
+                    title="Loop End"
+                  />
+                  {/* Visual representation of loop points */}
+                  <div className="relative w-full h-1 bg-slate-700 rounded-full pointer-events-none">
+                    <div 
+                      className="absolute h-full bg-accent rounded-full"
+                      style={{ 
+                        left: `${state.loopStart * 100}%`, 
+                        width: `${(state.loopEnd - state.loopStart) * 100}%` 
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Playback Controls */}
               <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1.5 z-20 opacity-0 group-hover:opacity-100 transition-opacity px-2">
                 <button 
