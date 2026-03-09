@@ -10,7 +10,7 @@ export function DeckFX({ side }: DeckFXProps) {
   return (
     <div
       className={clsx(
-        'col-span-12 lg:col-span-5 bg-primary/60 rounded-xl border border-slate-800 p-4 flex gap-6 items-center',
+        'col-span-12 lg:col-span-5 bg-slate-900/60 rounded-xl border border-slate-800 p-4 flex gap-6 items-center transition-colors duration-300',
         isRight && 'flex-row-reverse'
       )}
     >

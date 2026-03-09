@@ -16,11 +16,11 @@ function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: num
     setValue(newValue);
   }, []);
 
-  const handleMouseUp = useCallback(() => {
+  function handleMouseUp() {
     isDragging.current = false;
     document.removeEventListener('mousemove', handleMouseMove);
     document.removeEventListener('mouseup', handleMouseUp);
-  }, [handleMouseMove]);
+  }
 
   const handleMouseDown = (e: React.MouseEvent) => {
     isDragging.current = true;
@@ -81,7 +81,7 @@ function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: num
 
 export function Mixer() {
   return (
-    <div className="col-span-12 lg:col-span-2 bg-primary/60 rounded-xl border border-slate-800 p-4 flex flex-col items-center gap-6">
+    <div className="col-span-12 lg:col-span-2 bg-slate-900/60 rounded-xl border border-slate-800 p-4 flex flex-col items-center gap-6 transition-colors duration-300">
       <div className="grid grid-cols-2 gap-8 w-full">
         <div className="flex flex-col items-center gap-4">
           <EQKnob label="High" initialValue={0.2} />

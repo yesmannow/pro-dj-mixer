@@ -17,25 +17,9 @@ export default function Home() {
           <DeckFX side="right" />
         </div>
         <div className="grid grid-cols-12 gap-4 flex-none">
-          <Deck
-            side="left"
-            title="Neon Nights"
-            artist="Synthwave Collective"
-            bpm="124"
-            keySignature="4A"
-            timeRemaining="03:42.12"
-            isPlaying={true}
-          />
+          <Deck deckId="A" />
           <Mixer />
-          <Deck
-            side="right"
-            title="Cyber Groove"
-            artist="Electric Dreams"
-            bpm="126"
-            keySignature="7B"
-            timeRemaining="02:15.08"
-            isPlaying={false}
-          />
+          <Deck deckId="B" />
         </div>
         <Library />
       </main>

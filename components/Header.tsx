@@ -1,9 +1,10 @@
 import { Disc3, Clock, Settings } from 'lucide-react';
 import Image from 'next/image';
+import { ThemeToggle } from './ThemeToggle';
 
 export function Header() {
   return (
-    <header className="flex items-center justify-between border-b border-slate-800 px-6 py-3 bg-primary">
+    <header className="flex items-center justify-between border-b border-slate-800 px-6 py-3 bg-primary transition-colors duration-300">
       <div className="flex items-center gap-8">
         <div className="flex items-center gap-3 text-accent">
           <Disc3 className="w-8 h-8" />
@@ -31,6 +32,7 @@ export function Header() {
           <Clock className="w-4 h-4 text-accent" />
           <span className="text-xs font-mono">124.00 BPM</span>
         </div>
+        <ThemeToggle />
         <button className="p-2 hover:bg-slate-800 rounded-lg text-slate-400">
           <Settings className="w-5 h-5" />
         </button>

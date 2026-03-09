@@ -1,6 +1,6 @@
 export function MasterFX() {
   return (
-    <div className="col-span-12 lg:col-span-2 bg-primary/80 rounded-xl border border-accent/20 p-4 flex flex-col items-center justify-between">
+    <div className="col-span-12 lg:col-span-2 bg-slate-900/80 rounded-xl border border-accent/20 p-4 flex flex-col items-center justify-between transition-colors duration-300">
       <div className="w-full flex flex-col gap-2">
         <label className="text-[9px] uppercase tracking-widest text-accent font-bold text-center">
           Master FX
