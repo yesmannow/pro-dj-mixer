@@ -14,6 +14,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
+  const stemChainRef = useRef<ReturnType<AudioEngine['createStemChain']> | null>(null);
+  const fxBusRef = useRef<ReturnType<AudioEngine['createDeckFxBus']> | null>(null);
   const eqChainRef = useRef<ReturnType<AudioEngine['createEQChain']> | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
@@ -24,18 +26,27 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const animationRef = useRef<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const [mutedStems, setMutedStems] = useState<{ drums: boolean; inst: boolean; vocals: boolean }>({
+    drums: false,
+    inst: false,
+    vocals: false
+  });
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
 
     if (!gainRef.current) {
       gainRef.current = engine.context.createGain();
+      stemChainRef.current = engine.createStemChain(deckId);
+      fxBusRef.current = engine.createDeckFxBus(deckId);
       eqChainRef.current = engine.createEQChain();
       analyserRef.current = engine.context.createAnalyser();
       analyserRef.current.fftSize = 256;
       dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
 
-      // Connect EQ output to Analyser, Analyser to Gain, Gain to destination
+      // Connect source -> stem crossover -> FX bus -> EQ -> analyser -> gain -> destination
+      stemChainRef.current.output.connect(fxBusRef.current.input);
+      fxBusRef.current.output.connect(eqChainRef.current.input);
       eqChainRef.current.output.connect(analyserRef.current);
       analyserRef.current.connect(gainRef.current);
       gainRef.current.connect(engine.context.destination);
@@ -76,18 +87,17 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     };
 
     const playAudio = async () => {
-      if (!deckState.buffer || !gainRef.current || !eqChainRef.current) return;
+      if (!deckState.buffer || !gainRef.current || !eqChainRef.current || !stemChainRef.current || !fxBusRef.current) return;
 
       await engine.resume();
 
       stopAudio();
 
-      sourceRef.current = engine.context.createBufferSource();
-      sourceRef.current.buffer = deckState.buffer;
-      (sourceRef.current as any).preservesPitch = true;
+      sourceRef.current = engine.createPitchLockedSource(deckState.buffer);
+      sourceRef.current.playbackRate.value = 1;
 
-      // Connect source to EQ input
-      sourceRef.current.connect(eqChainRef.current.input);
+      // Connect source to stem crossover input
+      sourceRef.current.connect(stemChainRef.current.input);
 
       sourceRef.current.start(0, pauseTimeRef.current);
 
@@ -131,6 +141,26 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       stopAudio();
     };
   }, [deckState.isPlaying, deckState.buffer, deckId, togglePlay]);
+
+  useEffect(() => {
+    if (!sourceRef.current) return;
+    const targetRate = Math.max(0.5, Math.min(2.0, 1 + deckState.pitchPercent / 100));
+    sourceRef.current.playbackRate.setTargetAtTime(
+      targetRate,
+      AudioEngine.getInstance().context.currentTime,
+      0.02
+    );
+  }, [deckState.pitchPercent]);
+
+  useEffect(() => {
+    const bpm = Number(deckState.track?.bpm);
+    const validBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+    const halfBeatSeconds = 60 / validBpm / 2;
+    const engine = AudioEngine.getInstance();
+    engine.createDeckFxBus(deckId);
+    engine.setDeckDelay(deckId, halfBeatSeconds, 0.35, 0);
+    engine.setDeckReverb(deckId, 0);
+  }, [deckId, deckState.track?.id, deckState.track?.bpm]);
 
   // Reset pause time when a new track is loaded
   useEffect(() => {
@@ -195,6 +225,17 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     };
   }, []);
 
+  const toggleStemMute = useCallback((stemType: 'drums' | 'inst' | 'vocals') => {
+    setMutedStems((prev) => {
+      const nextMuted = !prev[stemType];
+      AudioEngine.getInstance().setStemMute(deckId, stemType, nextMuted);
+      return {
+        ...prev,
+        [stemType]: nextMuted
+      };
+    });
+  }, [deckId]);
+
   return {
     currentTime,
     duration: deckState.duration,
@@ -207,6 +248,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     pause: () => { if (deckState.isPlaying) togglePlay(deckId); },
     scrubTrack,
     endScrub,
-    getAudioData
+    getAudioData,
+    mutedStems,
+    toggleStemMute
   };
 }

@@ -40,7 +40,7 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
   return (
     <div className="flex flex-col gap-2 items-center">
       <div
-        className="w-8 h-8 rounded-full bg-slate-800 border border-slate-600 relative cursor-ns-resize group"
+        className="w-8 h-8 rounded-full bg-studio-slate border border-studio-gold/40 relative cursor-ns-resize group shadow-[0_6px_18px_rgba(0,0,0,0.45)]"
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
       >
@@ -50,17 +50,17 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
           style={{
             background:
               value > 0
-                ? `conic-gradient(from 0deg, #00f2ff 0deg, #00f2ff ${value * 135}deg, transparent ${value * 135}deg)`
+                ? `conic-gradient(from 0deg, #D4AF37 0deg, #D4AF37 ${value * 135}deg, transparent ${value * 135}deg)`
                 : value < 0
-                ? `conic-gradient(from 0deg, transparent 0deg, transparent ${360 + value * 135}deg, #f43f5e ${
+                ? `conic-gradient(from 0deg, transparent 0deg, transparent ${360 + value * 135}deg, #E11D48 ${
                     360 + value * 135
-                  }deg, #f43f5e 360deg)`
+                  }deg, #E11D48 360deg)`
                 : 'transparent',
           }}
         ></div>
 
         {/* Knob Body */}
-        <div className="absolute inset-0 rounded-full bg-slate-800 z-10 border border-slate-600"></div>
+        <div className="absolute inset-0 rounded-full bg-studio-black z-10 border border-studio-gold/40"></div>
 
         {/* Indicator */}
         <div
@@ -69,7 +69,7 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
         >
           <div
             className={`absolute top-1 left-1/2 -translate-x-1/2 w-0.5 h-2 rounded-full ${
-              value === 0 ? 'bg-slate-400' : value > 0 ? 'bg-accent shadow-[0_0_5px_#00f2ff]' : 'bg-rose-500 shadow-[0_0_5px_#f43f5e]'
+              value === 0 ? 'bg-slate-400' : value > 0 ? 'bg-studio-gold shadow-[0_0_5px_#D4AF37]' : 'bg-studio-crimson shadow-[0_0_5px_#E11D48]'
             }`}
           ></div>
         </div>
@@ -166,7 +166,7 @@ export function Mixer() {
   const volBTop = `${(1 - volB) * 100}%`;
 
   return (
-    <div className="bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
+    <div className="bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
       <div className="grid grid-cols-2 gap-8 w-full">
         <div className="flex flex-col items-center gap-4">
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />
@@ -182,15 +182,15 @@ export function Mixer() {
       <div className="flex justify-center gap-6 w-full px-4">
         <div
           ref={volARef}
-          className="w-6 h-32 fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
           onPointerDown={startVolDrag('A')}
           onDoubleClick={() => setVolume('A', 0.75)}
         >
           <div
-            className="absolute left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center"
+            className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
             style={{ top: volATop, transform: 'translateY(-50%)' }}
           >
-            <div className="w-4 h-0.5 bg-slate-600"></div>
+            <div className="w-4 h-0.5 bg-studio-black"></div>
           </div>
         </div>
         <div className="flex gap-2">
@@ -215,39 +215,39 @@ export function Mixer() {
         </div>
         <div
           ref={volBRef}
-          className="w-6 h-32 fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
           onPointerDown={startVolDrag('B')}
           onDoubleClick={() => setVolume('B', 0.75)}
         >
           <div
-            className="absolute left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center"
+            className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
             style={{ top: volBTop, transform: 'translateY(-50%)' }}
           >
-            <div className="w-4 h-0.5 bg-slate-600"></div>
+            <div className="w-4 h-0.5 bg-studio-black"></div>
           </div>
         </div>
       </div>
       <div className="w-full px-4 mt-auto">
         <div
-          className="h-8 w-full fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          className="h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
           ref={crossfaderRef}
           onMouseDown={handleCrossfaderDown}
           onDoubleClick={handleCrossfaderDoubleClick}
         >
           <div
-            className="absolute top-0 bottom-0 w-10 bg-slate-400 rounded-sm border border-slate-300 shadow-lg flex items-center justify-center"
+            className="absolute top-0 bottom-0 w-10 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] flex items-center justify-center"
             style={{ left: crossfaderLeft, transform: 'translateX(-50%)' }}
           >
-            <div className="h-4 w-0.5 bg-slate-600 pointer-events-none"></div>
+            <div className="h-4 w-0.5 bg-studio-black pointer-events-none"></div>
           </div>
         </div>
         <div className="mt-3 flex flex-col items-center gap-2">
-          <div className="inline-flex rounded-full bg-slate-900/80 p-1 border border-slate-700 text-[9px]">
+          <div className="inline-flex rounded-full bg-studio-black p-1 border border-studio-gold/30 text-[9px]">
             <button
               className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${
                 crossfaderCurve === 'blend'
-                  ? 'bg-accent text-slate-950 shadow-[0_0_8px_#00f2ff]'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-studio-gold text-studio-black shadow-[0_0_8px_#D4AF37]'
+                  : 'text-slate-300 hover:text-slate-100'
               }`}
               onClick={() => setCrossfaderCurve('blend')}
             >
@@ -256,8 +256,8 @@ export function Mixer() {
             <button
               className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${
                 crossfaderCurve === 'cut'
-                  ? 'bg-accent text-slate-950 shadow-[0_0_8px_#00f2ff]'
-                  : 'text-slate-400 hover:text-slate-200'
+                  ? 'bg-studio-gold text-studio-black shadow-[0_0_8px_#D4AF37]'
+                  : 'text-slate-300 hover:text-slate-100'
               }`}
               onClick={() => setCrossfaderCurve('cut')}
             >

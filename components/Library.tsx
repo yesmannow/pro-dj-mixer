@@ -17,10 +17,9 @@ export function Library() {
   const [isDragging, setIsDragging] = useState(false);
   const [isSmartMatchEnabled, setIsSmartMatchEnabled] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
 
-  const { tracks, processingTracks, loadTracks, addTrack, seedLibrary } = useLibraryStore();
+  const { tracks, processingTracks, loadTracks, seedLibrary, queueFilesForIngestion, isProcessingQueue, queueProgress } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
@@ -128,22 +127,8 @@ export function Library() {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer.files);
-    for (const file of files) {
-      await addTrack(file);
-    }
-  }, [addTrack]);
-
-  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const files = Array.from(e.target.files);
-      for (const file of files) {
-        await addTrack(file);
-      }
-    }
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
+    await queueFilesForIngestion(files);
+  }, [queueFilesForIngestion]);
 
   const handleCreateCrate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -237,12 +222,19 @@ export function Library() {
 
           <button
             onClick={() => setAddMusicModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs font-bold text-slate-300 transition-colors flex-shrink-0"
+            className="flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all flex-shrink-0"
           >
-            <UploadCloud className="w-3.5 h-3.5 text-accent" />
-            IMPORT
+            <span className="text-accent">+</span>
+            ADD MUSIC
           </button>
         </div>
+
+        {isProcessingQueue && (
+          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 max-w-[40%]">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+            <span className="truncate">{queueProgress || 'Analyzing...'}</span>
+          </div>
+        )}
 
         {isCreatingCrate && (
           <form onSubmit={handleCreateCrate} className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2">

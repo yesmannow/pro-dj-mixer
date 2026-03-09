@@ -1,26 +1,37 @@
 'use client';
 
-import { Play, Flame, Music2, Waves, Drum } from 'lucide-react';
+import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useState, useCallback, DragEvent, useRef, useEffect } from 'react';
+import { useState, useCallback, DragEvent, useRef, useEffect, useId } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { OverviewWaveform } from '@/components/OverviewWaveform';
+import { PerformancePads } from '@/components/deck/PerformancePads';
+import { PitchFader } from '@/components/deck/PitchFader';
 
 interface DeckProps {
   deckId: 'A' | 'B';
 }
 
-export function Deck({ deckId }: DeckProps) {
+export function Deck({ deckId }: Readonly<DeckProps>) {
   const isRight = deckId === 'B';
-  const { loadTrack } = useDeckStore();
+  const loadTrack = useDeckStore((state) => state.loadTrack);
+  const setPitch = useDeckStore((state) => state.setPitch);
+  const toggleSync = useDeckStore((state) => state.toggleSync);
+  const deckState = useDeckStore((state) => deckId === 'A' ? state.deckA : state.deckB);
   const { tracks } = useLibraryStore();
-  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData, play } = useDeckAudio(deckId);
+  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData, play, mutedStems, toggleStemMute } = useDeckAudio(deckId);
   const { setCue, clearCue, loadCues, getCues } = useTrackCueStore();
   const { autoPlayOnHotCue } = useUIStore();
+
+  const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isNudgingUp, setIsNudgingUp] = useState(false);
+  const [isNudgingDown, setIsNudgingDown] = useState(false);
+  const [scratchOffset, setScratchOffset] = useState(0);
 
   const cuePoints = track?.id ? getCues(track.id) : [];
 
@@ -29,6 +40,13 @@ export function Deck({ deckId }: DeckProps) {
       loadCues(track.id);
     }
   }, [track?.id, loadCues]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setScratchOffset(0);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [track?.id]);
 
   const handleCueClick = async (slot: number) => {
     if (!track?.id) return;
@@ -55,50 +73,62 @@ export function Deck({ deckId }: DeckProps) {
     await clearCue(track.id, slot);
   };
 
-  const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
-  const [pitchPercent, setPitchPercent] = useState(0);
-  const [tapTimes, setTapTimes] = useState<number[]>([]);
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  const [rotation, setRotation] = useState(0);
-  const jogWheelRef = useRef<HTMLDivElement>(null);
+  const tapTimesRef = useRef<number[]>([]);
+  const jogWheelRef = useRef<HTMLButtonElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
 
   // Deck specific identity colors and styling hooks
-  const deckColorName = isRight ? 'deck-b' : 'deck-a';
   const deckText = isRight ? 'text-deck-b' : 'text-deck-a';
   const deckBorder = isRight ? 'border-deck-b' : 'border-deck-a';
   const deckBg = isRight ? 'bg-deck-b' : 'bg-deck-a';
-  const deckStroke = isRight ? '#f000ff' : '#00f2ff';
+  const deckStroke = isRight ? '#E11D48' : '#D4AF37';
 
   const containerRef = useRef<HTMLDivElement>(null);
   const jogWheelDataRingRef = useRef<SVGCircleElement>(null);
   const titleGlowRef = useRef<HTMLHeadingElement>(null);
+  const deckTitleId = useId();
+  const dropDescriptionId = useId();
 
-  // Auto-rotation when playing & Audio Reactive Visuals
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') {
+      return undefined;
+    }
+
+    const node = containerRef.current;
+    if (!node) return undefined;
+
+    const logFocusIn = (event: FocusEvent) => {
+      console.debug(`[Deck ${deckId}] focus movement within deck container`, event.target);
+    };
+
+    const logKeyDown = (event: KeyboardEvent) => {
+      console.debug(`[Deck ${deckId}] keydown within deck container`, event.key);
+    };
+
+    node.addEventListener('focusin', logFocusIn);
+    node.addEventListener('keydown', logKeyDown, true);
+
+    return () => {
+      node.removeEventListener('focusin', logFocusIn);
+      node.removeEventListener('keydown', logKeyDown, true);
+    };
+  }, [deckId]);
+
+  // Audio Reactive Visuals
   useEffect(() => {
     let animationFrame: number;
-    let lastTime = performance.now();
 
-    const animate = (time: number) => {
-      const dt = time - lastTime;
-
-      if (isPlaying && !isDraggingRef.current) {
-        // 33 1/3 RPM = 33.333 / 60 * 360 = 200 degrees per second
-        setRotation(prev => (prev + (200 * dt) / 1000) % 360);
-      }
-
+    const animate = () => {
       const audioData = getAudioData?.();
 
       if (audioData) {
          const { rms, low } = audioData;
 
          if (containerRef.current) {
-            // Pulse the box-shadow on bass hits
             const shadowSpread = 15 + low * 40;
             const shadowOpacity = 0.2 + low * 0.5;
-            containerRef.current.style.boxShadow = `0 0 ${shadowSpread}px rgba(${isRight ? '240,0,255' : '0,242,255'}, ${shadowOpacity})`;
+            containerRef.current.style.boxShadow = `0 0 ${shadowSpread}px rgba(212,175,55, ${shadowOpacity})`;
          }
 
          if (titleGlowRef.current) {
@@ -107,20 +137,19 @@ export function Deck({ deckId }: DeckProps) {
          }
 
          if (jogWheelDataRingRef.current) {
-            const dashArray = 2 * Math.PI * 80;
+            const dashArray = 2 * Math.PI * 110;
             const fillAmount = Math.min(1, rms * 2.5);
             jogWheelDataRingRef.current.style.strokeDasharray = `${dashArray * fillAmount} ${dashArray}`;
             jogWheelDataRingRef.current.style.opacity = (0.3 + rms).toString();
          }
       }
 
-      lastTime = time;
       animationFrame = requestAnimationFrame(animate);
     };
 
     animationFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrame);
-  }, [isPlaying, getAudioData, isRight]);
+  }, [getAudioData]);
 
   const getAngle = (e: React.PointerEvent | PointerEvent) => {
     if (!jogWheelRef.current) return 0;
@@ -135,8 +164,7 @@ export function Deck({ deckId }: DeckProps) {
   const handlePointerDown = (e: React.PointerEvent) => {
     isDraggingRef.current = true;
     lastAngleRef.current = getAngle(e);
-    // @ts-ignore
-    e.target.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -148,7 +176,7 @@ export function Deck({ deckId }: DeckProps) {
     if (deltaAngle > 180) deltaAngle -= 360;
     if (deltaAngle < -180) deltaAngle += 360;
 
-    setRotation(prev => (prev + deltaAngle) % 360);
+    setScratchOffset(prev => prev + deltaAngle);
     lastAngleRef.current = currentAngle;
 
     // Time delta: 33.333 RPM = 1.8 seconds per revolution.
@@ -164,28 +192,22 @@ export function Deck({ deckId }: DeckProps) {
 
   const handlePointerUp = (e: React.PointerEvent) => {
     isDraggingRef.current = false;
-    // @ts-ignore
-    e.target.releasePointerCapture(e.pointerId);
+    e.currentTarget.releasePointerCapture(e.pointerId);
     endScrub();
   };
 
   const handleTap = useCallback(() => {
     const now = Date.now();
-    setTapTimes((prev) => {
-      const newTapTimes = [...prev, now].filter((t) => now - t < 3000);
+    tapTimesRef.current = [...tapTimesRef.current, now].filter((t) => now - t < 3000);
+    if (tapTimesRef.current.length < 2) return;
 
-      if (newTapTimes.length >= 2) {
-        const intervals = [];
-        for (let i = 1; i < newTapTimes.length; i++) {
-          intervals.push(newTapTimes[i] - newTapTimes[i - 1]);
-        }
-        const averageInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
-        const calculatedBpm = Math.round(60000 / averageInterval);
-        setCurrentBpm(calculatedBpm);
-      }
-
-      return newTapTimes;
-    });
+    const intervals: number[] = [];
+    for (let i = 1; i < tapTimesRef.current.length; i++) {
+      intervals.push(tapTimesRef.current[i] - tapTimesRef.current[i - 1]);
+    }
+    const averageInterval = intervals.reduce((a, b) => a + b, 0) / intervals.length;
+    const calculatedBpm = Math.round(60000 / averageInterval);
+    setCurrentBpm(calculatedBpm);
   }, []);
 
   const handleDragOver = (e: DragEvent) => {
@@ -207,7 +229,7 @@ export function Deck({ deckId }: DeckProps) {
         const droppedTrack = JSON.parse(json);
         if (droppedTrack) {
           loadTrack(deckId, droppedTrack);
-          setCurrentBpm(Number(droppedTrack.bpm) || currentBpm);
+          setCurrentBpm(Number(droppedTrack.bpm) || 120);
         }
       } catch {
         // Fallback: legacy numeric id support
@@ -224,7 +246,7 @@ export function Deck({ deckId }: DeckProps) {
   };
 
   const formatTime = (seconds: number) => {
-    if (isNaN(seconds) || seconds < 0) return '00:00.00';
+    if (Number.isNaN(seconds) || seconds < 0) return '00:00.00';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     const ms = Math.floor((seconds % 1) * 100);
@@ -248,75 +270,104 @@ export function Deck({ deckId }: DeckProps) {
     [duration, track, currentTime, scrubTrack]
   );
 
+  const handleNudgeUpStart = () => setIsNudgingUp(true);
+  const handleNudgeUpEnd = () => setIsNudgingUp(false);
+  const handleNudgeDownStart = () => setIsNudgingDown(true);
+  const handleNudgeDownEnd = () => setIsNudgingDown(false);
+
+  const baseVisualRotation = (currentTime / 1.8) * 360;
+  const scratchDeltaOffset = scratchOffset;
+  const finalRotation = ((baseVisualRotation + scratchDeltaOffset) % 360 + 360) % 360;
+
+  let temporaryPitch = 0;
+  if (isNudgingUp) {
+    temporaryPitch = 5;
+  } else if (isNudgingDown) {
+    temporaryPitch = -5;
+  }
+  const syncButtonClass = deckState.sync
+    ? 'bg-studio-black border-studio-gold text-studio-gold shadow-[0_0_10px_#D4AF37]'
+    : `bg-studio-slate border-studio-gold/30 text-slate-300 hover:${deckBorder} hover:${deckText}`;
+  const playButtonClass = isPlaying
+    ? `${deckBg} text-slate-900 shadow-[0_0_12px_rgba(212,175,55,0.45)] ${deckBorder}`
+    : `bg-studio-slate border-studio-gold/30 text-slate-300 hover:${deckBorder} hover:${deckText}`;
+
   const renderJogWheel = () => (
     <div className="flex flex-col gap-4 items-center">
-      <div
+      <button
+        type="button"
         ref={jogWheelRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onPointerCancel={handlePointerUp}
-        className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
+        className="w-64 h-64 rounded-full border-4 border-studio-black flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none vinyl-record"
+        style={{ transform: `rotate(${finalRotation}deg)` }}
       >
-        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
-          <circle cx="96" cy="96" r="90" fill="transparent" stroke={isRight ? "rgba(240, 0, 255, 0.1)" : "rgba(0, 242, 255, 0.1)"} strokeWidth="2" />
-          <circle cx="96" cy="96" r="90" fill="transparent" stroke={deckStroke} strokeWidth="2" strokeDasharray={2 * Math.PI * 90} strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))} className="transition-all duration-75 ease-linear" />
+        <div className="absolute inset-6 rounded-full border border-slate-800/60">
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1.5 bg-white rounded-sm shadow-[0_0_6px_rgba(255,255,255,0.4)]"></div>
+        </div>
 
-          {/* Cue Markers */}
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="relative w-24 h-24 rounded-full border-4 border-studio-black bg-studio-gold overflow-hidden z-10 flex items-center justify-center">
+            {track?.artworkUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" draggable={false} />
+            ) : (
+              <span className="text-xs font-black text-studio-black text-center px-3 leading-tight" style={{ fontFamily: 'var(--font-heading)' }}>
+                EXCLUSIVE DUBPLATE
+              </span>
+            )}
+          </div>
+          <div className="absolute w-2 h-2 bg-studio-black rounded-full z-20"></div>
+        </div>
+
+        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 256 256">
+          <circle cx="128" cy="128" r="120" fill="transparent" stroke={isRight ? "rgba(225, 29, 72, 0.25)" : "rgba(212, 175, 55, 0.25)"} strokeWidth="3" />
+          <circle cx="128" cy="128" r="120" fill="transparent" stroke={deckStroke} strokeWidth="3" strokeDasharray={2 * Math.PI * 120} strokeDashoffset={2 * Math.PI * 120 * (1 - (duration > 0 ? currentTime / duration : 0))} className="transition-all duration-75 ease-linear" />
+
           {[0.1, 0.25, 0.4, 0.6].map((pos, i) => {
             const angle = pos * Math.PI * 2;
-            const x = (96 + 90 * Math.cos(angle)).toFixed(6);
-            const y = (96 + 90 * Math.sin(angle)).toFixed(6);
+            const x = (128 + 120 * Math.cos(angle)).toFixed(6);
+            const y = (128 + 120 * Math.sin(angle)).toFixed(6);
             return (
-              <circle key={i} cx={x} cy={y} r="3" fill={["#ef4444", "#22c55e", "#3b82f6", "#eab308"][i]} />
+              <circle key={`cue-marker-${pos}`} cx={x} cy={y} r="3" fill={["#facc15", "#f97316", "#ef4444", "#22c55e"][i]} />
             );
           })}
 
-          {/* Dynamic VU Data Ring */}
-          <circle ref={jogWheelDataRingRef} cx="96" cy="96" r="80" fill="transparent" stroke={deckStroke} strokeWidth="4" strokeDasharray="0 1000" className="opacity-30 blur-[1px] transition-opacity" />
+          <circle ref={jogWheelDataRingRef} cx="128" cy="128" r="110" fill="transparent" stroke={deckStroke} strokeWidth="4" strokeDasharray="0 1000" className="opacity-30 blur-[1px] transition-opacity" />
         </svg>
-        <div className={clsx("absolute inset-0 rounded-full border", `${deckBg}/10`)} style={{ transform: `rotate(${rotation}deg)` }}>
-          <div className={clsx("absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full", deckBg, isRight ? "shadow-[0_0_5px_#f000ff]" : "shadow-[0_0_5px_#00f2ff]")}></div>
-        </div>
-        <div className="absolute inset-7 rounded-full overflow-hidden border border-slate-700 z-[5]">
-          {track?.artworkUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" draggable={false} />
-          ) : (
-            <div className="w-full h-full bg-slate-800" style={{ backgroundImage: 'repeating-radial-gradient(#1e293b 0, #1e293b 2px, #0f172a 3px, #0f172a 4px)' }} />
-          )}
-          <div className="absolute inset-0 bg-black/25" />
-        </div>
 
-        <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
-          {isLoading ? (
-            <div className={clsx("w-10 h-10 border-2 border-t-transparent rounded-full animate-spin", deckBorder)}></div>
-          ) : (
-            <div className="w-10 h-10 border-2 border-slate-600 rounded-full"></div>
-          )}
+        <div className="absolute inset-0 pointer-events-none">
           {isLoading && (
-            <div className={clsx("absolute -bottom-10 text-[10px] animate-pulse font-bold tracking-widest uppercase", deckText)}>
-              Loading...
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className={clsx("w-12 h-12 border-2 border-t-transparent rounded-full animate-spin", deckBorder)}></div>
             </div>
           )}
         </div>
-      </div>
+      </button>
     </div>
   );
 
   return (
-    <div
+    <section
       ref={containerRef}
       className={clsx(
-        "bg-slate-900/40 backdrop-blur-xl rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
+        "bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
         isDragOver
-          ? "scale-[1.02] ring-2 ring-offset-0 ring-[var(--deck-accent, #00f2ff)] border-transparent"
-          : "border-white/5"
+          ? "scale-[1.02] ring-2 ring-offset-0 ring-studio-gold border-transparent"
+          : ""
       )}
+      aria-labelledby={deckTitleId}
+      aria-describedby={dropDescriptionId}
+      aria-busy={isLoading}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      <p id={dropDescriptionId} className="sr-only">
+        Drag and drop a track onto this deck to load it.
+      </p>
       <OverviewWaveform
         deckId={deckId}
         duration={duration}
@@ -325,16 +376,23 @@ export function Deck({ deckId }: DeckProps) {
         accentColor={deckStroke}
         onScrubTo={handleOverviewScrub}
       />
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between text-slate-100">
         <div>
-          <h3 ref={titleGlowRef} className={clsx("font-[800] tracking-tight neon-text-glow text-[length:var(--step-1)]", deckText)}>{title}</h3>
+           <h3
+             ref={titleGlowRef}
+             id={deckTitleId}
+             className={clsx("font-[800] tracking-tight neon-text-glow text-[length:var(--step-1)]", deckText)}
+             style={{ fontFamily: 'var(--font-heading)' }}
+           >
+             {title}
+          </h3>
           <div className="flex items-center gap-2">
-            <p className="text-slate-500 text-[length:var(--step-0)]">
-              {artist} • <span className="font-mono font-bold text-slate-300 tabular-nums">{bpm}</span> BPM • <span className="font-mono font-bold text-slate-300">{keySignature}</span>
+            <p className="text-slate-300 text-[length:var(--step-0)]">
+              {artist} • <span className="font-mono font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span className="font-mono font-bold text-slate-100">{keySignature}</span>
             </p>
             <button
               onClick={handleTap}
-              className={clsx("px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold transition-colors active:bg-white/10 text-slate-400", `hover:${deckText}`, `hover:${deckBorder}`)}
+              className="px-2 py-0.5 bg-studio-black border border-studio-gold/40 rounded text-[9px] font-black transition-colors active:bg-white/5 text-studio-gold"
             >
               TAP
             </button>
@@ -352,95 +410,62 @@ export function Deck({ deckId }: DeckProps) {
         {/* Transport & Performance Pads */}
         <div className="flex flex-col gap-4 flex-1 w-full max-w-sm">
           {/* Transport */}
-          <div className="flex justify-center gap-4">
-             <button className={clsx("w-20 h-12 rounded-lg bg-slate-800 border-b-4 shadow-inner flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none", deckBorder, deckText)}>
-               <span className="text-xs">CUE</span>
+          <div className="flex flex-wrap items-center justify-center gap-4 w-full min-w-[300px]">
+             <button className="shrink-0 w-20 h-12 rounded-lg bg-white border-4 border-black shadow-[0_6px_0_#111] flex flex-col items-center justify-center font-black text-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_#111] touch-none">
+               <span className="text-xs leading-none">CUE</span>
+             </button>
+             <button
+               onClick={() => toggleSync(deckId)}
+               disabled={!track}
+               className={clsx(
+                 'shrink-0 w-20 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none disabled:opacity-50 disabled:cursor-not-allowed shadow-inner border-b-4',
+                 syncButtonClass
+               )}
+             >
+               <span className="text-xs">SYNC</span>
              </button>
              <button
                onClick={togglePlay}
                disabled={!track}
                className={clsx(
-                 'w-24 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none disabled:opacity-50 disabled:cursor-not-allowed shadow-inner border-b-4',
-                 isPlaying
-                   ? `${deckBg} text-primary neon-glow ${deckBorder}`
-                   : `bg-slate-800 border-slate-700 text-slate-400 hover:${deckBorder} hover:${deckText}`
+                 'shrink-0 w-24 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none disabled:opacity-50 disabled:cursor-not-allowed shadow-inner border-b-4',
+                 playButtonClass
                )}
              >
-               <Play className={clsx('w-6 h-6', isPlaying ? 'fill-primary' : 'fill-slate-400')} />
+               <Play className={clsx('w-6 h-6', isPlaying ? 'fill-slate-900' : 'fill-slate-200')} />
              </button>
           </div>
 
           {/* Performance Pads 2x4 Grid */}
-          <div className="grid grid-cols-4 gap-2">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((slot) => {
-              const cue = cuePoints.find(c => c.slot === slot);
-              const isActive = !!cue;
-
-              // Use specific icons/colors for placeholders if no cue is set
-              const getPadContent = () => {
-                if (cue) return <span className="text-[10px] font-black">{slot}</span>;
-                if (slot === 5) return <Music2 className="w-4 h-4 opacity-20" />;
-                if (slot === 6) return <Waves className="w-4 h-4 opacity-20" />;
-                if (slot === 7) return <Flame className="w-4 h-4 opacity-20" />;
-                if (slot === 8) return <Drum className="w-4 h-4 opacity-20" />;
-                return <span className="text-[10px] font-bold opacity-20">{slot}</span>;
-              };
-
-              return (
-                <button
-                  key={slot}
-                  className={clsx(
-                    "h-12 rounded-md border-b-4 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none",
-                    isActive
-                      ? (isRight ? "bg-deck-b text-slate-950 border-deck-b/50 shadow-[0_0_15px_#f000ff44]" : "bg-deck-a text-slate-950 border-deck-a/50 shadow-[0_0_15px_#00f2ff44]")
-                      : "bg-slate-800 border-slate-900 text-slate-500 hover:bg-slate-700"
-                  )}
-                  onClick={() => handleCueClick(slot)}
-                  onContextMenu={(e) => handleCueRightClick(e, slot)}
-                >
-                   {getPadContent()}
-                </button>
-              );
-            })}
-          </div>
+          <PerformancePads
+            isRight={isRight}
+            cuePoints={cuePoints}
+            mutedStems={mutedStems}
+            onToggleStem={toggleStemMute}
+            onCueClick={(slot) => {
+              void handleCueClick(slot);
+            }}
+            onCueRightClick={(event, slot) => {
+              void handleCueRightClick(event, slot);
+            }}
+          />
         </div>
 
         {/* Pitch / Tempo Fader */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">
-            Pitch
-          </div>
-          <div className="relative h-32 w-8 fader-track rounded-full border border-slate-800 bg-slate-950/40 flex items-center justify-center">
-            <div className="absolute inset-x-2 h-0.5 bg-slate-600" />
-            <div
-              className={clsx(
-                'absolute -left-1 w-2 h-2 rounded-full transition-all',
-                Math.abs(pitchPercent) < 0.001
-                  ? 'bg-lime-400 shadow-[0_0_8px_#22c55e]'
-                  : 'bg-slate-700'
-              )}
-            />
-            <input
-              type="range"
-              min={-8}
-              max={8}
-              step={0.1}
-              value={pitchPercent}
-              onChange={(e) => {
-                const raw = parseFloat(e.target.value);
-                const snapped = raw > -0.8 && raw < 0.8 ? 0 : raw;
-                setPitchPercent(snapped);
-              }}
-              className="appearance-none w-full h-24 rotate-[-90deg] outline-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_6px_#00f2ff]"
-            />
-          </div>
-          <div className="font-mono text-[10px] text-slate-300">
-            {pitchPercent.toFixed(2)}%
-          </div>
-        </div>
+        <PitchFader
+          pitchPercent={deckState.pitchPercent}
+          temporaryPitch={temporaryPitch}
+          isSynced={deckState.sync}
+          onPitchChange={(nextPitchPercent) => setPitch(deckId, nextPitchPercent)}
+          onDisableSync={() => toggleSync(deckId)}
+          onNudgeDownStart={handleNudgeDownStart}
+          onNudgeDownEnd={handleNudgeDownEnd}
+          onNudgeUpStart={handleNudgeUpStart}
+          onNudgeUpEnd={handleNudgeUpEnd}
+        />
 
         {isRight && renderJogWheel()}
       </div>
-    </div>
+    </section>
   );
 }

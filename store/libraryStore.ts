@@ -60,37 +60,45 @@ const pickRandomArtworkUrl = () => {
 
 // Singleton Worker instance
 let worker: Worker | null = null;
-if (typeof window !== 'undefined') {
+if (typeof globalThis.window !== 'undefined') {
   worker = new Worker(new URL('../lib/analysisWorker.ts', import.meta.url), { type: 'module' });
 }
 
 // Helper to wrap the worker postMessage in a Promise
 const analyzeAudioFile = (file: File): Promise<AnalysisResponse> => {
-  return new Promise(async (resolve, reject) => {
-    if (!worker) return reject("Worker not initialized");
-
-    const arrayBuffer = await file.arrayBuffer();
-    const requestId = crypto.randomUUID();
-
-    const handleMessage = (e: MessageEvent<AnalysisResponse>) => {
-      if (e.data.id === requestId) {
-        worker?.removeEventListener('message', handleMessage);
-        resolve(e.data);
+  return new Promise((resolve, reject) => {
+    const runAsync = async () => {
+      if (!worker) {
+        reject(new Error('Worker not initialized'));
+        return;
       }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const requestId = crypto.randomUUID();
+
+      const handleMessage = (e: MessageEvent<AnalysisResponse>) => {
+        if (e.data.id === requestId) {
+          worker?.removeEventListener('message', handleMessage);
+          resolve(e.data);
+        }
+      };
+
+      worker.addEventListener('message', handleMessage);
+
+      const request: AnalysisRequest = {
+        id: requestId,
+        buffer: arrayBuffer,
+        filename: file.name
+      };
+
+      worker.postMessage(request, [request.buffer]); // Transfer buffer ownership to save memory
     };
 
-    worker.addEventListener('message', handleMessage);
-
-    const request: AnalysisRequest = {
-      id: requestId,
-      buffer: arrayBuffer,
-      filename: file.name
-    };
-
-    worker.postMessage(request, [request.buffer]); // Transfer buffer ownership to save memory
+    runAsync().catch((error) => reject(error instanceof Error ? error : new Error('Analysis failed')));
   });
 };
 
+const yieldToUi = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   tracks: [],
@@ -115,7 +123,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       return;
     }
 
-    set({ isProcessingQueue: true });
+    set({ isProcessingQueue: true, queueProgress: `Preparing ${audioFiles.length} files...` });
 
     let successCount = 0;
     const total = audioFiles.length;
@@ -133,17 +141,19 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           const secs = Math.floor(res.duration % 60);
           const formattedDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 
+          const artworkUrl = URL.createObjectURL(file);
+
           const newTrack: Track = {
             title: res.title || file.name.replace(/\.[^/.]+$/, ""),
             artist: res.artist || 'Unknown Artist',
             bpm: res.bpm.toString(),
-            key: res.keySignature,
+            key: res.keySignature ?? '--',
             duration: formattedDuration,
             energy: "Medium", // Algorithm pending
             hasVocal: false, // Algorithm pending
             fileBlob: file,
-            artworkUrl: res.albumArt,
-            overviewWaveform: res.overviewWaveform,
+            artworkUrl: res.albumArt || artworkUrl,
+            overviewWaveform: Array.from(res.overviewPeaks),
             createdAt: Date.now(),
           };
 
@@ -157,6 +167,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         } catch (err) {
             console.error(`Failed to ingest ${file.name}:`, err);
         }
+        await yieldToUi();
     }
 
     set({ isProcessingQueue: false, queueProgress: '' });

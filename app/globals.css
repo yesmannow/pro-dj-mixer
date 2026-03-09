@@ -2,13 +2,17 @@
 @import "tw-animate-css";
 
 @theme {
-  --color-primary: #121212;
-  --color-accent: #00f2ff;
-  --color-deck-a: #00f2ff;
-  --color-deck-b: #f000ff;
-  --color-background: #191919;
-  --font-display: var(--font-space-grotesk), sans-serif;
+  --color-studio-black: #050505;
+  --color-studio-slate: #1A1610;
+  --color-studio-gold: #D4AF37;
+  --color-studio-crimson: #E11D48;
+  --color-accent: #D4AF37;
+  --color-background: #050505;
+  --font-heading: var(--font-heading), sans-serif;
+  --font-sans: var(--font-sans), sans-serif;
   --font-mono: var(--font-mono), monospace;
+  --color-deck-a: #D4AF37;
+  --color-deck-b: #E11D48;
 }
 
 :root {
@@ -32,5 +36,19 @@
   .neon-text-glow {
     text-shadow: 0 0 10px currentColor;
     opacity: 0.8;
+  }
+
+  .vinyl-record {
+    background: radial-gradient(circle, #222 0%, #111 30%, #222 35%, #111 70%, #333 100%);
+    position: relative;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  }
+  .vinyl-record::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(255,255,255,0.1) 100%);
+    pointer-events: none;
   }
 }

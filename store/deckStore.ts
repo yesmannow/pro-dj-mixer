@@ -11,6 +11,7 @@ export interface DeckState {
   isLoading: boolean;
   volume: number;
   pitchPercent: number;
+  sync: boolean;
 }
 
 interface DeckStore {
@@ -20,6 +21,7 @@ interface DeckStore {
   togglePlay: (deckId: 'A' | 'B') => void;
   setVolume: (deckId: 'A' | 'B', volume: number) => void;
   setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
+  toggleSync: (deckId: 'A' | 'B') => void;
 }
 
 const initialDeckState: DeckState = {
@@ -31,6 +33,7 @@ const initialDeckState: DeckState = {
   isLoading: false,
   volume: 1,
   pitchPercent: 0,
+  sync: false,
 };
 
 export const useDeckStore = create<DeckStore>((set, get) => ({
@@ -95,5 +98,43 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
     set((state) => ({
       [deckKey]: { ...state[deckKey], pitchPercent }
     }));
+  },
+
+  toggleSync: (deckId: 'A' | 'B') => {
+    const localDeckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    const masterDeckKey = deckId === 'A' ? 'deckB' : 'deckA';
+
+    set((state) => {
+      const localDeck = state[localDeckKey];
+      const masterDeck = state[masterDeckKey];
+
+      if (localDeck.sync) {
+        return {
+          [localDeckKey]: { ...localDeck, sync: false }
+        };
+      }
+
+      const masterBpm = Number(masterDeck.track?.bpm);
+      const localBpm = Number(localDeck.track?.bpm);
+      const canSync =
+        masterDeck.isPlaying &&
+        Number.isFinite(masterBpm) &&
+        Number.isFinite(localBpm) &&
+        masterBpm > 0 &&
+        localBpm > 0;
+
+      if (!canSync) {
+        return {
+          [localDeckKey]: { ...localDeck, sync: false }
+        };
+      }
+
+      const ratio = masterBpm / localBpm;
+      const pitchPercent = (ratio - 1) * 100;
+
+      return {
+        [localDeckKey]: { ...localDeck, sync: true, pitchPercent }
+      };
+    });
   }
 }));
