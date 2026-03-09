@@ -31,6 +31,33 @@ const mockAnalysis = async (file: File | string) => {
 
 let isSeeding = false;
 
+const seedArtworkUrls = [
+  '/track-images/abstract-1846847_1280.jpg',
+  '/track-images/architecture-3189972_1280.jpg',
+  '/track-images/aurora-borealis-9267515_1280.jpg',
+  '/track-images/background-1833056_1280.jpg',
+  '/track-images/bicycle-3045580_1280.jpg',
+  '/track-images/dj-2581269_1280.jpg',
+  '/track-images/gong-8255081_1280.jpg',
+  '/track-images/graffiti-1476119_1280.jpg',
+  '/track-images/graffiti-3750912_1280.jpg',
+  '/track-images/hamburg-2718329_1280.jpg',
+  '/track-images/love-2724141_1280.png',
+  '/track-images/skateboard-447147_1280.jpg',
+  '/track-images/skull-and-crossbones-414207_1280.jpg',
+  '/track-images/starry-sky-1655503_1280.jpg',
+  '/track-images/street-art-1499524_1280.jpg',
+  '/track-images/tube-7260586_1280.jpg',
+  '/track-images/vinyl-1595847_1280.jpg',
+  '/track-images/wall-2583885_1280.jpg',
+  '/track-images/wallpaper-5928106_1280.png',
+  '/track-images/woman-3633737_1280.jpg'
+];
+
+const pickRandomArtworkUrl = () => {
+  return seedArtworkUrls[Math.floor(Math.random() * seedArtworkUrls.length)];
+};
+
 // Singleton Worker instance
 let worker: Worker | null = null;
 if (typeof window !== 'undefined') {
@@ -74,7 +101,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     const tracks = await db.tracks.orderBy('createdAt').reverse().toArray();
     set({ tracks });
   },
-  
+
   queueFilesForIngestion: async (files: File[]) => {
     if (get().isProcessingQueue) {
       toast.error('A queue is already processing. Please wait.');
@@ -82,21 +109,21 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
 
     const audioFiles = files.filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|flac|m4a)$/i.test(f.name));
-    
+
     if (audioFiles.length === 0) {
       toast.error("No valid audio files found in selection.");
       return;
     }
 
     set({ isProcessingQueue: true });
-    
+
     let successCount = 0;
     const total = audioFiles.length;
 
     for (let i = 0; i < total; i++) {
         const file = audioFiles[i];
         set({ queueProgress: `Analyzing ${i + 1} of ${total}: ${file.name}` });
-        
+
         try {
           // Offload to Web Worker
           const res = await analyzeAudioFile(file);
@@ -138,18 +165,55 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   seedLibrary: async () => {
     if (isSeeding) return;
-    const count = await db.tracks.count();
-    if (count > 0) return;
-    
     isSeeding = true;
 
     const seedTracks = [
-      { url: '/audio/party.mp3', name: 'party.mp3' },
+      { url: '/audio/12_05.mp3', name: '12_05.mp3' },
+      { url: '/audio/amor-sincero.mp3', name: 'amor-sincero.mp3' },
+      { url: '/audio/amores-perdidos.mp3', name: 'amores-perdidos.mp3' },
+      { url: '/audio/bungalow.mp3', name: 'bungalow.mp3' },
+      { url: '/audio/corazon-y-mente.mp3', name: 'corazon-y-mente.mp3' },
+      { url: '/audio/crussin.mp3', name: 'crussin.mp3' },
+      { url: '/audio/dejate-llevar.mp3', name: 'dejate-llevar.mp3' },
+      { url: '/audio/el-don.mp3', name: 'el-don.mp3' },
+      { url: '/audio/entre-humos.mp3', name: 'entre-humos.mp3' },
+      { url: '/audio/f-7.mp3', name: 'f-7.mp3' },
+      { url: '/audio/falle.mp3', name: 'falle.mp3' },
+      { url: '/audio/ganja.mp3', name: 'ganja.mp3' },
+      { url: '/audio/gunster.mp3', name: 'gunster.mp3' },
+      { url: '/audio/im-sorry.mp3', name: 'im-sorry.mp3' },
+      { url: '/audio/jardin-de-rosas.mp3', name: 'jardin-de-rosas.mp3' },
       { url: '/audio/los-5.mp3', name: 'los-5.mp3' },
-      { url: '/audio/te-perdi.mp3', name: 'te-perdi.mp3' }
+      { url: '/audio/me-cuentan.mp3', name: 'me-cuentan.mp3' },
+      { url: '/audio/noches-enteras.mp3', name: 'noches-enteras.mp3' },
+      { url: '/audio/party.mp3', name: 'party.mp3' },
+      { url: '/audio/quejas.mp3', name: 'quejas.mp3' },
+      { url: '/audio/sentimientos.mp3', name: 'sentimientos.mp3' },
+      { url: '/audio/sin-rencores.mp3', name: 'sin-rencores.mp3' },
+      { url: '/audio/te-perdi.mp3', name: 'te-perdi.mp3' },
+      { url: '/audio/te-prometo.mp3', name: 'te-prometo.mp3' },
+      { url: '/audio/tortas-de-jamon.mp3', name: 'tortas-de-jamon.mp3' },
+      { url: '/audio/un-dia-mas.mp3', name: 'un-dia-mas.mp3' }
     ];
 
+    const existingSeededTracks = await db.tracks.where('audioUrl').anyOf(seedTracks.map(t => t.url)).toArray();
+    const existingByUrl = new Map(existingSeededTracks.filter(t => t.audioUrl).map(t => [t.audioUrl as string, t]));
+
+    // Backfill missing artwork on existing seeded tracks
+    const toBackfill = existingSeededTracks.filter(t => !t.artworkUrl);
+    if (toBackfill.length > 0) {
+      await db.transaction('rw', db.tracks, async () => {
+        for (const t of toBackfill) {
+          if (!t.id) continue;
+          const artworkUrl = pickRandomArtworkUrl();
+          await db.tracks.update(t.id, { artworkUrl });
+        }
+      });
+    }
+
     for (const track of seedTracks) {
+      if (existingByUrl.has(track.url)) continue;
+
       const tempId = track.name + Date.now();
       set(state => ({
         processingTracks: [...state.processingTracks, { id: tempId, name: track.name }]
@@ -157,7 +221,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
       try {
         const analysis = await mockAnalysis(track.name);
-        
+
         let title = track.name.replace(/\.[^/.]+$/, "");
         let artist = 'Pre-existing Track';
 
@@ -169,6 +233,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           duration: analysis.duration,
           energy: analysis.energy,
           hasVocal: analysis.hasVocal,
+          audioUrl: track.url,
+          artworkUrl: pickRandomArtworkUrl(),
           createdAt: Date.now(),
         };
 
@@ -187,6 +253,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       }
     }
     isSeeding = false;
+
+    // Reload to reflect any inserts/backfills
+    await get().loadTracks();
   },
 
   addTrack: async (file: File) => {

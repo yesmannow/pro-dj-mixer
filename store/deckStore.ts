@@ -39,7 +39,7 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
 
   loadTrack: async (deckId: 'A' | 'B', track: Track) => {
     const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
-    
+
     set((state) => ({
       [deckKey]: { ...state[deckKey], isLoading: true, track }
     }));
@@ -47,19 +47,21 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
     try {
       const engine = AudioEngine.getInstance();
       await engine.resume();
-      
+
       let buffer: AudioBuffer;
       if (track.fileBlob) {
         buffer = await engine.loadBuffer(track.fileBlob);
+      } else if (track.audioUrl) {
+        buffer = await engine.loadBuffer(track.audioUrl);
       } else {
         // Fallback for seeded tracks without Blob
         buffer = await engine.loadBuffer('https://actions.google.com/sounds/v1/alarms/bugle_tune.ogg');
       }
 
       set((state) => ({
-        [deckKey]: { 
-          ...state[deckKey], 
-          isLoading: false, 
+        [deckKey]: {
+          ...state[deckKey],
+          isLoading: false,
           buffer,
           duration: buffer.duration,
           currentTime: 0,

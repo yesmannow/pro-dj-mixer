@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 
 interface OverviewWaveformProps {
   deckId: 'A' | 'B';
@@ -25,7 +25,7 @@ export function OverviewWaveform({
   const isScrubbingRef = useRef(false);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 
-  const peaks = track?.overviewWaveform ?? [];
+  const peaks = useMemo(() => track?.overviewWaveform ?? [], [track?.overviewWaveform]);
 
   useEffect(() => {
     if (!containerRef.current) return;

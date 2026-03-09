@@ -10,6 +10,7 @@ export interface Track {
   energy: string;
   hasVocal: boolean;
   fileBlob?: Blob;
+  audioUrl?: string;
   artworkUrl?: string;
   overviewWaveform?: number[];
   createdAt: number;
@@ -20,8 +21,8 @@ export class DJDatabase extends Dexie {
 
   constructor() {
     super('DJDatabase');
-    this.version(1).stores({
-      tracks: '++id, title, artist, bpm, key, createdAt'
+    this.version(2).stores({
+      tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl'
     });
   }
 }

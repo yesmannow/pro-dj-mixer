@@ -39,7 +39,7 @@ export default function Home() {
             </AnimatePresence>
 
             {/* Grid for Decks & Mixer (Core Focus) */}
-            <div className="flex-1 w-full max-w-[1800px] mx-auto grid grid-cols-1 xl:grid-cols-[1fr_320px_1fr] gap-4 min-h-0 items-center justify-center">
+            <div className="flex-1 w-full mx-auto grid grid-cols-1 xl:grid-cols-[minmax(320px,1fr)_minmax(260px,360px)_minmax(320px,1fr)] gap-4 min-h-0 items-center justify-center">
               <div className="h-full flex flex-col justify-center">
                 <Deck deckId="A" />
               </div>

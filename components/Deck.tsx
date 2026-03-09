@@ -17,7 +17,7 @@ export function Deck({ deckId }: DeckProps) {
   const { loadTrack } = useDeckStore();
   const { tracks } = useLibraryStore();
   const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
-  
+
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [pitchPercent, setPitchPercent] = useState(0);
   const [tapTimes, setTapTimes] = useState<number[]>([]);
@@ -34,7 +34,7 @@ export function Deck({ deckId }: DeckProps) {
   const deckBorder = isRight ? 'border-deck-b' : 'border-deck-a';
   const deckBg = isRight ? 'bg-deck-b' : 'bg-deck-a';
   const deckStroke = isRight ? '#f000ff' : '#00f2ff';
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const jogWheelDataRingRef = useRef<SVGCircleElement>(null);
   const titleGlowRef = useRef<HTMLHeadingElement>(null);
@@ -46,29 +46,29 @@ export function Deck({ deckId }: DeckProps) {
 
     const animate = (time: number) => {
       const dt = time - lastTime;
-      
+
       if (isPlaying && !isDraggingRef.current) {
         // 33 1/3 RPM = 33.333 / 60 * 360 = 200 degrees per second
         setRotation(prev => (prev + (200 * dt) / 1000) % 360);
       }
-      
+
       const audioData = getAudioData?.();
-      
+
       if (audioData) {
          const { rms, low } = audioData;
-         
+
          if (containerRef.current) {
             // Pulse the box-shadow on bass hits
             const shadowSpread = 15 + low * 40;
             const shadowOpacity = 0.2 + low * 0.5;
             containerRef.current.style.boxShadow = `0 0 ${shadowSpread}px rgba(${isRight ? '240,0,255' : '0,242,255'}, ${shadowOpacity})`;
          }
-         
+
          if (titleGlowRef.current) {
             titleGlowRef.current.style.textShadow = `0 0 ${5 + rms * 20}px currentColor`;
             titleGlowRef.current.style.opacity = (0.7 + rms * 0.3).toString();
          }
-         
+
          if (jogWheelDataRingRef.current) {
             const dashArray = 2 * Math.PI * 80;
             const fillAmount = Math.min(1, rms * 2.5);
@@ -76,7 +76,7 @@ export function Deck({ deckId }: DeckProps) {
             jogWheelDataRingRef.current.style.opacity = (0.3 + rms).toString();
          }
       }
-      
+
       lastTime = time;
       animationFrame = requestAnimationFrame(animate);
     };
@@ -106,7 +106,7 @@ export function Deck({ deckId }: DeckProps) {
     if (!isDraggingRef.current) return;
     const currentAngle = getAngle(e);
     let deltaAngle = currentAngle - lastAngleRef.current;
-    
+
     // Handle wrap-around
     if (deltaAngle > 180) deltaAngle -= 360;
     if (deltaAngle < -180) deltaAngle += 360;
@@ -136,7 +136,7 @@ export function Deck({ deckId }: DeckProps) {
     const now = Date.now();
     setTapTimes((prev) => {
       const newTapTimes = [...prev, now].filter((t) => now - t < 3000);
-      
+
       if (newTapTimes.length >= 2) {
         const intervals = [];
         for (let i = 1; i < newTapTimes.length; i++) {
@@ -146,7 +146,7 @@ export function Deck({ deckId }: DeckProps) {
         const calculatedBpm = Math.round(60000 / averageInterval);
         setCurrentBpm(calculatedBpm);
       }
-      
+
       return newTapTimes;
     });
   }, []);
@@ -213,7 +213,7 @@ export function Deck({ deckId }: DeckProps) {
 
   const renderJogWheel = () => (
     <div className="flex flex-col gap-4 items-center">
-      <div 
+      <div
         ref={jogWheelRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -224,12 +224,12 @@ export function Deck({ deckId }: DeckProps) {
         <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
           <circle cx="96" cy="96" r="90" fill="transparent" stroke={isRight ? "rgba(240, 0, 255, 0.1)" : "rgba(0, 242, 255, 0.1)"} strokeWidth="2" />
           <circle cx="96" cy="96" r="90" fill="transparent" stroke={deckStroke} strokeWidth="2" strokeDasharray={2 * Math.PI * 90} strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))} className="transition-all duration-75 ease-linear" />
-          
+
           {/* Cue Markers */}
           {[0.1, 0.25, 0.4, 0.6].map((pos, i) => {
-            const angle = pos * Math.PI * 2; 
-            const x = 96 + 90 * Math.cos(angle);
-            const y = 96 + 90 * Math.sin(angle);
+            const angle = pos * Math.PI * 2;
+            const x = (96 + 90 * Math.cos(angle)).toFixed(6);
+            const y = (96 + 90 * Math.sin(angle)).toFixed(6);
             return (
               <circle key={i} cx={x} cy={y} r="3" fill={["#ef4444", "#22c55e", "#3b82f6", "#eab308"][i]} />
             );
@@ -241,6 +241,16 @@ export function Deck({ deckId }: DeckProps) {
         <div className={clsx("absolute inset-0 rounded-full border", `${deckBg}/10`)} style={{ transform: `rotate(${rotation}deg)` }}>
           <div className={clsx("absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full", deckBg, isRight ? "shadow-[0_0_5px_#f000ff]" : "shadow-[0_0_5px_#00f2ff]")}></div>
         </div>
+        <div className="absolute inset-7 rounded-full overflow-hidden border border-slate-700 z-[5]">
+          {track?.artworkUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" draggable={false} />
+          ) : (
+            <div className="w-full h-full bg-slate-800" style={{ backgroundImage: 'repeating-radial-gradient(#1e293b 0, #1e293b 2px, #0f172a 3px, #0f172a 4px)' }} />
+          )}
+          <div className="absolute inset-0 bg-black/25" />
+        </div>
+
         <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
           {isLoading ? (
             <div className={clsx("w-10 h-10 border-2 border-t-transparent rounded-full animate-spin", deckBorder)}></div>
@@ -258,7 +268,7 @@ export function Deck({ deckId }: DeckProps) {
   );
 
   return (
-    <div 
+    <div
       ref={containerRef}
       className={clsx(
         "bg-slate-900/40 backdrop-blur-xl rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
@@ -298,10 +308,10 @@ export function Deck({ deckId }: DeckProps) {
           <p className="text-slate-500 text-[10px] uppercase tracking-widest">Remaining</p>
         </div>
       </div>
-      
+
       <div className="flex flex-col lg:flex-row justify-between items-center gap-6 py-4">
         {!isRight && renderJogWheel()}
-        
+
         {/* Transport & Performance Pads */}
         <div className="flex flex-col gap-4 flex-1 w-full max-w-sm">
           {/* Transport */}
@@ -322,14 +332,14 @@ export function Deck({ deckId }: DeckProps) {
                <Play className={clsx('w-6 h-6', isPlaying ? 'fill-primary' : 'fill-slate-400')} />
              </button>
           </div>
-          
+
           {/* Performance Pads 2x4 Grid */}
           <div className="grid grid-cols-4 gap-2">
             {['HOT CUE 1', 'HOT CUE 2', 'HOT CUE 3', 'HOT CUE 4', 'VOCAL', 'MELODY', 'BASS', 'DRUMPS'].map((label, i) => (
-              <button 
-                key={i} 
+              <button
+                key={i}
                 className={clsx(
-                  "h-12 rounded-md bg-slate-800 border-b-4 border-slate-900 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none", 
+                  "h-12 rounded-md bg-slate-800 border-b-4 border-slate-900 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none",
                   isRight ? "hover:bg-deck-b/20 border-b-deck-b/20" : "hover:bg-deck-a/20 border-b-deck-a/20"
                 )}
                 onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
