@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useRef, useCallback } from 'react';
+import { useMixerStore } from '@/store/mixerStore';
 
-function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: number }) {
-  const [value, setValue] = useState(initialValue); // -1 to 1
+function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startValue = useRef(0);
@@ -13,8 +13,8 @@ function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: num
     const deltaY = startY.current - e.clientY;
     let newValue = startValue.current + deltaY / 50;
     newValue = Math.max(-1, Math.min(1, newValue));
-    setValue(newValue);
-  }, []);
+    onChange(newValue);
+  }, [onChange]);
 
   function handleMouseUp() {
     isDragging.current = false;
@@ -31,7 +31,7 @@ function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: num
   };
 
   const handleDoubleClick = () => {
-    setValue(0);
+    onChange(0);
   };
 
   // Rotation from -135deg to +135deg
@@ -80,18 +80,59 @@ function EQKnob({ label, initialValue = 0 }: { label: string; initialValue?: num
 }
 
 export function Mixer() {
+  const { eqA, eqB, crossfader, setEQ, setCrossfader } = useMixerStore();
+
+  const isDraggingCrossfader = useRef(false);
+  const crossfaderRef = useRef<HTMLDivElement>(null);
+
+  const handleCrossfaderMove = useCallback((e: MouseEvent) => {
+    if (!isDraggingCrossfader.current || !crossfaderRef.current) return;
+    const rect = crossfaderRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    let newValue = (x / rect.width) * 2 - 1;
+    newValue = Math.max(-1, Math.min(1, newValue));
+    setCrossfader(newValue);
+  }, [setCrossfader]);
+
+  function handleCrossfaderUp() {
+    isDraggingCrossfader.current = false;
+    document.removeEventListener('mousemove', handleCrossfaderMove);
+    document.removeEventListener('mouseup', handleCrossfaderUp);
+  }
+
+  const handleCrossfaderDown = (e: React.MouseEvent) => {
+    isDraggingCrossfader.current = true;
+    document.addEventListener('mousemove', handleCrossfaderMove);
+    document.addEventListener('mouseup', handleCrossfaderUp);
+    // Also update immediately on click
+    if (crossfaderRef.current) {
+      const rect = crossfaderRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      let newValue = (x / rect.width) * 2 - 1;
+      newValue = Math.max(-1, Math.min(1, newValue));
+      setCrossfader(newValue);
+    }
+  };
+
+  const handleCrossfaderDoubleClick = () => {
+    setCrossfader(0);
+  };
+
+  // Map crossfader value (-1 to 1) to left percentage (0% to 100%)
+  const crossfaderLeft = `${((crossfader + 1) / 2) * 100}%`;
+
   return (
     <div className="col-span-12 lg:col-span-2 bg-slate-900/60 rounded-xl border border-slate-800 p-4 flex flex-col items-center gap-6 transition-colors duration-300">
       <div className="grid grid-cols-2 gap-8 w-full">
         <div className="flex flex-col items-center gap-4">
-          <EQKnob label="High" initialValue={0.2} />
-          <EQKnob label="Mid" initialValue={-0.1} />
-          <EQKnob label="Low" initialValue={0.5} />
+          <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />
+          <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} />
+          <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} />
         </div>
         <div className="flex flex-col items-center gap-4">
-          <EQKnob label="High" initialValue={0} />
-          <EQKnob label="Mid" initialValue={0.4} />
-          <EQKnob label="Low" initialValue={-0.3} />
+          <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} />
+          <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} />
+          <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} />
         </div>
       </div>
       <div className="flex justify-center gap-6 w-full px-4">
@@ -127,9 +168,17 @@ export function Mixer() {
         </div>
       </div>
       <div className="w-full px-4 mt-auto">
-        <div className="h-8 w-full fader-track rounded-full border border-slate-800 relative">
-          <div className="absolute left-1/2 -translate-x-1/2 top-0 bottom-0 w-10 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center">
-            <div className="h-4 w-0.5 bg-slate-600"></div>
+        <div 
+          className="h-8 w-full fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          ref={crossfaderRef}
+          onMouseDown={handleCrossfaderDown}
+          onDoubleClick={handleCrossfaderDoubleClick}
+        >
+          <div 
+            className="absolute top-0 bottom-0 w-10 bg-slate-400 rounded-sm border border-slate-300 shadow-lg flex items-center justify-center"
+            style={{ left: crossfaderLeft, transform: 'translateX(-50%)' }}
+          >
+            <div className="h-4 w-0.5 bg-slate-600 pointer-events-none"></div>
           </div>
         </div>
         <div className="flex items-center justify-center gap-1.5 mb-1 mt-2">

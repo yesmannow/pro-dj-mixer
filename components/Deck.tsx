@@ -2,7 +2,7 @@
 
 import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useState, useCallback, DragEvent } from 'react';
+import { useState, useCallback, DragEvent, useRef, useEffect } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
@@ -15,11 +15,77 @@ export function Deck({ deckId }: DeckProps) {
   const isRight = deckId === 'B';
   const { loadTrack } = useDeckStore();
   const { tracks } = useLibraryStore();
-  const { currentTime, duration, isPlaying, isLoading, track, togglePlay } = useDeckAudio(deckId);
+  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub } = useDeckAudio(deckId);
   
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [tapTimes, setTapTimes] = useState<number[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
+
+  const [rotation, setRotation] = useState(0);
+  const jogWheelRef = useRef<HTMLDivElement>(null);
+  const lastAngleRef = useRef<number>(0);
+  const isDraggingRef = useRef(false);
+
+  // Auto-rotation when playing
+  useEffect(() => {
+    let animationFrame: number;
+    let lastTime = performance.now();
+
+    const animate = (time: number) => {
+      if (isPlaying && !isDraggingRef.current) {
+        const dt = time - lastTime;
+        // 33 1/3 RPM = 33.333 / 60 * 360 = 200 degrees per second
+        setRotation(prev => (prev + (200 * dt) / 1000) % 360);
+      }
+      lastTime = time;
+      animationFrame = requestAnimationFrame(animate);
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isPlaying]);
+
+  const getAngle = (e: React.PointerEvent | PointerEvent) => {
+    if (!jogWheelRef.current) return 0;
+    const rect = jogWheelRef.current.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const x = e.clientX - centerX;
+    const y = e.clientY - centerY;
+    return Math.atan2(y, x) * (180 / Math.PI);
+  };
+
+  const handlePointerDown = (e: React.PointerEvent) => {
+    isDraggingRef.current = true;
+    lastAngleRef.current = getAngle(e);
+    // @ts-ignore
+    e.target.setPointerCapture(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!isDraggingRef.current) return;
+    const currentAngle = getAngle(e);
+    let deltaAngle = currentAngle - lastAngleRef.current;
+    
+    // Handle wrap-around
+    if (deltaAngle > 180) deltaAngle -= 360;
+    if (deltaAngle < -180) deltaAngle += 360;
+
+    setRotation(prev => (prev + deltaAngle) % 360);
+    lastAngleRef.current = currentAngle;
+
+    // Time delta: 33.333 RPM = 1.8 seconds per revolution.
+    // So deltaTime = deltaAngle / 360 * 1.8
+    const timeDelta = (deltaAngle / 360) * 1.8;
+    scrubTrack(timeDelta);
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    isDraggingRef.current = false;
+    // @ts-ignore
+    e.target.releasePointerCapture(e.pointerId);
+    endScrub();
+  };
 
   const handleTap = useCallback(() => {
     const now = Date.now();
@@ -182,9 +248,22 @@ export function Deck({ deckId }: DeckProps) {
       <div className="flex justify-between items-center py-4">
         {!isRight && (
           <div className="flex flex-col gap-4 items-center">
-            <div className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform">
-              <div className="absolute inset-0 rounded-full border border-accent/10"></div>
-              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center">
+            <div 
+              ref={jogWheelRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
+            >
+              <div 
+                className="absolute inset-0 rounded-full border border-accent/10"
+                style={{ transform: `rotate(${rotation}deg)` }}
+              >
+                {/* Marker to show rotation */}
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-accent rounded-full shadow-[0_0_5px_#00f2ff]"></div>
+              </div>
+              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
                 {isLoading ? (
                   <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
                 ) : (
@@ -219,9 +298,22 @@ export function Deck({ deckId }: DeckProps) {
         </div>
         {isRight && (
           <div className="flex flex-col gap-4 items-center">
-            <div className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform">
-              <div className="absolute inset-0 rounded-full border border-accent/10"></div>
-              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center">
+            <div 
+              ref={jogWheelRef}
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
+            >
+              <div 
+                className="absolute inset-0 rounded-full border border-accent/10"
+                style={{ transform: `rotate(${rotation}deg)` }}
+              >
+                {/* Marker to show rotation */}
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-accent rounded-full shadow-[0_0_5px_#00f2ff]"></div>
+              </div>
+              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
                 {isLoading ? (
                   <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
                 ) : (

@@ -1,15 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDeckStore } from '@/store/deckStore';
+import { useMixerStore } from '@/store/mixerStore';
 import { AudioEngine } from '@/lib/audioEngine';
 
 export function useDeckAudio(deckId: 'A' | 'B') {
   const deckState = useDeckStore((state) => deckId === 'A' ? state.deckA : state.deckB);
   const { togglePlay, setVolume } = useDeckStore();
   
+  const mixerState = useMixerStore();
+  const eqState = deckId === 'A' ? mixerState.eqA : mixerState.eqB;
+  const crossfader = mixerState.crossfader;
+  
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
-  const startTimeRef = useRef<number>(0);
+  const eqChainRef = useRef<ReturnType<AudioEngine['createEQChain']> | null>(null);
+  
   const pauseTimeRef = useRef<number>(0);
+  const currentTimeRef = useRef<number>(0);
+  const lastContextTimeRef = useRef<number>(0);
   const animationRef = useRef<number | null>(null);
   
   const [currentTime, setCurrentTime] = useState(0);
@@ -19,13 +27,27 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     
     if (!gainRef.current) {
       gainRef.current = engine.context.createGain();
+      eqChainRef.current = engine.createEQChain();
+      
+      // Connect EQ output to Gain, Gain to destination
+      eqChainRef.current.output.connect(gainRef.current);
       gainRef.current.connect(engine.context.destination);
     }
 
     if (gainRef.current) {
-      gainRef.current.gain.value = deckState.volume;
+      // Calculate final volume based on deck volume and crossfader
+      const { gainA, gainB } = engine.getEqualPowerGains(crossfader);
+      const crossfaderGain = deckId === 'A' ? gainA : gainB;
+      gainRef.current.gain.value = deckState.volume * crossfaderGain;
     }
-  }, [deckState.volume]);
+    
+    if (eqChainRef.current) {
+      const mapEQ = (val: number) => val < 0 ? val * 24 : val * 6;
+      eqChainRef.current.low.gain.value = mapEQ(eqState.low);
+      eqChainRef.current.mid.gain.value = mapEQ(eqState.mid);
+      eqChainRef.current.high.gain.value = mapEQ(eqState.high);
+    }
+  }, [deckState.volume, crossfader, eqState, deckId]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -47,7 +69,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     };
 
     const playAudio = async () => {
-      if (!deckState.buffer || !gainRef.current) return;
+      if (!deckState.buffer || !gainRef.current || !eqChainRef.current) return;
       
       await engine.resume();
       
@@ -55,18 +77,29 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       
       sourceRef.current = engine.context.createBufferSource();
       sourceRef.current.buffer = deckState.buffer;
-      sourceRef.current.connect(gainRef.current);
+      
+      // Connect source to EQ input
+      sourceRef.current.connect(eqChainRef.current.input);
       
       sourceRef.current.start(0, pauseTimeRef.current);
-      startTimeRef.current = engine.context.currentTime - pauseTimeRef.current;
+      
+      currentTimeRef.current = pauseTimeRef.current;
+      lastContextTimeRef.current = engine.context.currentTime;
       
       const updateTime = () => {
-        if (deckState.isPlaying && deckState.buffer) {
-          const current = engine.context.currentTime - startTimeRef.current;
-          setCurrentTime(current);
-          if (current >= deckState.buffer.duration) {
+        if (deckState.isPlaying && deckState.buffer && sourceRef.current) {
+          const now = engine.context.currentTime;
+          const delta = now - lastContextTimeRef.current;
+          lastContextTimeRef.current = now;
+          
+          const newTime = currentTimeRef.current + delta * sourceRef.current.playbackRate.value;
+          currentTimeRef.current = newTime;
+          setCurrentTime(newTime);
+          
+          if (newTime >= deckState.buffer.duration) {
             togglePlay(deckId);
             pauseTimeRef.current = 0;
+            currentTimeRef.current = 0;
             setCurrentTime(0);
           } else {
             animationRef.current = requestAnimationFrame(updateTime);
@@ -81,7 +114,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       playAudio();
     } else {
       if (sourceRef.current) {
-        pauseTimeRef.current = engine.context.currentTime - startTimeRef.current;
+        pauseTimeRef.current = currentTimeRef.current;
       }
       stopAudio();
     }
@@ -94,14 +127,41 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   // Reset pause time when a new track is loaded
   useEffect(() => {
     pauseTimeRef.current = 0;
-    // We can't call setCurrentTime(0) here because it triggers a state update during render if called synchronously, but it's in useEffect so it's fine.
-    // However, ESLint complains. We can just let the playAudio handle it or use a ref.
-    // Actually, we can just omit it, because when a new track is loaded, the component will re-render and we can derive the time or just let it be.
-    // To be safe, we can use a setTimeout to avoid the warning, or just ignore it.
-    // Let's just use a timeout.
+    currentTimeRef.current = 0;
     const timer = setTimeout(() => setCurrentTime(0), 0);
     return () => clearTimeout(timer);
   }, [deckState.track]);
+
+  const scrubTrack = useCallback((timeDelta: number) => {
+    if (!deckState.buffer) return;
+    
+    if (!deckState.isPlaying) {
+      let newTime = pauseTimeRef.current + timeDelta;
+      newTime = Math.max(0, Math.min(newTime, deckState.buffer.duration));
+      pauseTimeRef.current = newTime;
+      currentTimeRef.current = newTime;
+      setCurrentTime(newTime);
+    } else {
+      if (sourceRef.current) {
+        const rate = 1.0 + timeDelta * 10; 
+        sourceRef.current.playbackRate.setTargetAtTime(
+          Math.max(0.5, Math.min(2.0, rate)), 
+          AudioEngine.getInstance().context.currentTime, 
+          0.05
+        );
+      }
+    }
+  }, [deckState.buffer, deckState.isPlaying]);
+
+  const endScrub = useCallback(() => {
+    if (sourceRef.current && deckState.isPlaying) {
+      sourceRef.current.playbackRate.setTargetAtTime(
+        1.0, 
+        AudioEngine.getInstance().context.currentTime, 
+        0.1
+      );
+    }
+  }, [deckState.isPlaying]);
 
   return {
     currentTime,
@@ -110,6 +170,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     isLoading: deckState.isLoading,
     track: deckState.track,
     togglePlay: () => togglePlay(deckId),
-    setVolume: (v: number) => setVolume(deckId, v)
+    setVolume: (v: number) => setVolume(deckId, v),
+    scrubTrack,
+    endScrub
   };
 }
