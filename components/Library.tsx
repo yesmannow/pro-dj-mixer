@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Layers, ListChecks, UploadCloud, Loader2, Zap } from 'lucide-react';
+import { Search, Plus, Layers, ListChecks, UploadCloud, Loader2, Zap, FolderOpen, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
+import toast from 'react-hot-toast';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useCueStore } from '@/store/cueStore';
+import { useCrateStore } from '@/store/crateStore';
+import { useHistoryStore } from '@/store/historyStore';
 import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
 
 export function Library() {
@@ -20,13 +23,34 @@ export function Library() {
   const { tracks, processingTracks, loadTracks, addTrack, seedLibrary } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
+  const {
+    crates,
+    activeCrateId,
+    crateTracks,
+    loadCrates,
+    createCrate,
+    deleteCrate,
+    addTrackToCrate,
+    removeTrackFromCrate,
+    setActiveCrate
+  } = useCrateStore();
+  const { history, loadHistory, addToHistory, clearHistory } = useHistoryStore();
 
   const deckA = useDeckStore(state => state.deckA);
   const deckB = useDeckStore(state => state.deckB);
 
   const masterDeck = deckA.isPlaying ? deckA : (deckB.isPlaying ? deckB : deckA);
 
+  const [newCrateName, setNewCrateName] = useState('');
+  const [isCreatingCrate, setIsCreatingCrate] = useState(false);
+
   const displayTracks = tracks.filter(t => {
+    // Crate filter
+    if (activeCrateId) {
+      const trackIds = crateTracks[activeCrateId] || [];
+      if (!t.id || !trackIds.includes(t.id)) return false;
+    }
+
     if (!isSmartMatchEnabled) return true;
     if (!masterDeck.track) return true; // Need a track to match against
     return isSmartMatch(
@@ -41,7 +65,31 @@ export function Library() {
     loadTracks().then(() => {
       seedLibrary();
     });
-  }, [loadTracks, seedLibrary]);
+    loadCrates();
+    loadHistory();
+  }, [loadTracks, seedLibrary, loadCrates, loadHistory]);
+
+  // Track plays for history
+  const lastPlayedIdA = useRef<number | null>(null);
+  const lastPlayedIdB = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (deckA.track?.id && deckA.isPlaying && deckA.track.id !== lastPlayedIdA.current) {
+      addToHistory(deckA.track.id, 'A');
+      lastPlayedIdA.current = deckA.track.id;
+    } else if (!deckA.isPlaying) {
+      lastPlayedIdA.current = null;
+    }
+  }, [deckA.track?.id, deckA.isPlaying, addToHistory]);
+
+  useEffect(() => {
+    if (deckB.track?.id && deckB.isPlaying && deckB.track.id !== lastPlayedIdB.current) {
+      addToHistory(deckB.track.id, 'B');
+      lastPlayedIdB.current = deckB.track.id;
+    } else if (!deckB.isPlaying) {
+      lastPlayedIdB.current = null;
+    }
+  }, [deckB.track?.id, deckB.isPlaying, addToHistory]);
 
   useEffect(() => {
     const handleClickAway = (e: MouseEvent) => {
@@ -51,6 +99,15 @@ export function Library() {
     };
     document.addEventListener('mousedown', handleClickAway);
     return () => document.removeEventListener('mousedown', handleClickAway);
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpenActionsForTrackId(null);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -88,6 +145,15 @@ export function Library() {
     }
   };
 
+  const handleCreateCrate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCrateName.trim()) return;
+    await createCrate(newCrateName.trim());
+    setNewCrateName('');
+    setIsCreatingCrate(false);
+    toast.success(`Crate "${newCrateName}" created`);
+  };
+
   const handleTrackDragStart = (e: React.DragEvent, track: any) => {
     e.dataTransfer.setData('application/json', JSON.stringify(track));
     e.dataTransfer.effectAllowed = 'copy';
@@ -95,7 +161,9 @@ export function Library() {
 
   return (
     <div
-      className="h-[40vh] min-h-[250px] max-h-[500px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
+      className={clsx(
+        "h-[40vh] min-h-[250px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
+      )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -109,42 +177,142 @@ export function Library() {
         </div>
       )}
 
-      <div className="p-4 border-b border-slate-800 flex justify-between items-center">
-        <div className="flex gap-4 items-center">
+      <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20">
+        <div className="flex gap-4 items-center overflow-x-auto no-scrollbar">
           <button
-            onClick={() => setActiveTab('tracks')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors", activeTab === 'tracks' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
+            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             ALL TRACKS
           </button>
+
+          <div className="w-px h-6 bg-slate-800 flex-shrink-0"></div>
+
+          {crates.map(crate => (
+            <div key={crate.id} className="flex items-center gap-1 group/crate flex-shrink-0">
+              <button
+                onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
+                className={clsx(
+                  "px-3 py-1 rounded text-sm font-bold transition-colors flex items-center gap-2",
+                  activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
+                )}
+              >
+                <FolderOpen className="w-3.5 h-3.5" />
+                {crate.name.toUpperCase()}
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
+                className="opacity-0 group-hover/crate:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"
+                title="Delete Crate"
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+
+          <button
+            onClick={() => setIsCreatingCrate(true)}
+            className="p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors flex-shrink-0"
+            title="New Crate"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="w-px h-6 bg-slate-800 flex-shrink-0 mx-2"></div>
+
           <button
             onClick={() => setActiveTab('cue')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors", activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             CUE
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors", activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             HISTORY
           </button>
 
+          <div className="w-px h-6 bg-slate-800 mx-2 flex-shrink-0"></div>
 
-          <div className="w-px h-6 bg-slate-800 mx-2"></div>
-
-          {/* Hidden legacy input removed: utilizing the Universal Importer instead */}
           <button
             onClick={() => setAddMusicModalOpen(true)}
-            className="flex items-center gap-2 px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs font-bold text-slate-300 transition-colors"
+            className="flex items-center gap-2 px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs font-bold text-slate-300 transition-colors flex-shrink-0"
           >
             <UploadCloud className="w-3.5 h-3.5 text-accent" />
             IMPORT
           </button>
         </div>
 
+        {isCreatingCrate && (
+          <form onSubmit={handleCreateCrate} className="flex items-center gap-2 animate-in fade-in slide-in-from-right-2">
+            <input
+              autoFocus
+              type="text"
+              value={newCrateName}
+              onChange={(e) => setNewCrateName(e.target.value)}
+              placeholder="Crate name..."
+              className="bg-black/40 border border-slate-700 rounded px-2 py-1 text-xs text-white outline-none focus:border-accent w-32"
+              onBlur={() => { if (!newCrateName) setIsCreatingCrate(false); }}
+            />
+          </form>
+        )}
       </div>
       <div className="overflow-y-auto flex-1">
+        {activeTab === 'history' && (
+          <div className="p-4 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs uppercase tracking-widest text-slate-500 font-bold">Play History</h3>
+              <button
+                onClick={() => clearHistory()}
+                className="px-3 py-1 text-[10px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
+                disabled={history.length === 0}
+              >
+                CLEAR ALL
+              </button>
+            </div>
+            <div className="rounded-xl border border-slate-800 overflow-hidden">
+              {history.length === 0 ? (
+                <div className="px-4 py-6 text-xs text-slate-500">No tracks played yet.</div>
+              ) : (
+                <div className="divide-y divide-slate-800/50">
+                  {history.map((item, idx) => (
+                    <div key={`history-${item.id ?? idx}`} className="flex items-center justify-between px-4 py-3 bg-slate-900/30 group">
+                      <div className="min-w-0 flex items-center gap-3">
+                        <span className="text-[10px] font-mono text-slate-600 w-4">{history.length - idx}</span>
+                        <div className="min-w-0">
+                          <div className="text-sm text-slate-200 truncate">{item.track?.title || 'Unknown Track'}</div>
+                          <div className="text-[10px] text-slate-500 truncate flex items-center gap-2">
+                            {item.track?.artist}
+                            <span className="w-1 h-1 rounded-full bg-slate-700" />
+                            Deck {item.deckId}
+                            <span className="w-1 h-1 rounded-full bg-slate-700" />
+                            {new Date(item.playedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => { if (item.track) useDeckStore.getState().loadTrack('A', item.track); toast.success('Loaded to Deck A'); }}
+                          className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
+                        >
+                          DECK A
+                        </button>
+                        <button
+                          onClick={() => { if (item.track) useDeckStore.getState().loadTrack('B', item.track); toast.success('Loaded to Deck B'); }}
+                          className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
+                        >
+                          DECK B
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {activeTab === 'cue' && (
           <div className="p-4 flex flex-col gap-4">
             <div className="flex items-center justify-between">
@@ -335,11 +503,13 @@ export function Library() {
                   <td className="px-4 py-4 text-right relative group/menu">
                     <div ref={openActionsForTrackId === track.id ? actionsMenuRef : undefined} className="inline-block relative">
                       <button
-                      type="button"
-                      onClick={() => setOpenActionsForTrackId((prev) => (prev === track.id ? null : (track.id ?? null)))}
-                      className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent hover:border-accent transition-all duration-200"
-                    >
-                      <Plus className="w-4 h-4" />
+                        type="button"
+                        aria-haspopup="menu"
+                        aria-expanded={openActionsForTrackId === track.id}
+                        onClick={() => setOpenActionsForTrackId((prev) => (prev === track.id ? null : (track.id ?? null)))}
+                        className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent hover:border-accent transition-all duration-200"
+                      >
+                        <Plus className="w-4 h-4" />
                       </button>
                     {openActionsForTrackId === track.id && (
                       <div className="absolute right-0 top-full mt-1 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
@@ -348,6 +518,7 @@ export function Library() {
                             type="button"
                             onClick={() => {
                               useDeckStore.getState().loadTrack('A', track);
+                              toast.success('Added to Deck A');
                               setOpenActionsForTrackId(null);
                             }}
                             className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left"
@@ -359,6 +530,7 @@ export function Library() {
                             type="button"
                             onClick={() => {
                               useDeckStore.getState().loadTrack('B', track);
+                              toast.success('Added to Deck B');
                               setOpenActionsForTrackId(null);
                             }}
                             className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
@@ -369,7 +541,11 @@ export function Library() {
                           <button
                             type="button"
                             onClick={() => {
+                              const before = queueA.length;
                               addToCue('A', track);
+                              const after = useCueStore.getState().queueA.length;
+                              if (after === before) toast('Already queued (Deck A)');
+                              else toast.success('Added to Cue A');
                               setOpenActionsForTrackId(null);
                             }}
                             className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
@@ -380,7 +556,11 @@ export function Library() {
                           <button
                             type="button"
                             onClick={() => {
+                              const before = queueB.length;
                               addToCue('B', track);
+                              const after = useCueStore.getState().queueB.length;
+                              if (after === before) toast('Already queued (Deck B)');
+                              else toast.success('Added to Cue B');
                               setOpenActionsForTrackId(null);
                             }}
                             className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
@@ -388,6 +568,29 @@ export function Library() {
                             <ListChecks className="w-4 h-4 text-pink-500" />
                             Add to Cue B
                           </button>
+
+                          {crates.length > 0 && (
+                            <div className="border-t border-slate-800/50 py-1">
+                              <div className="px-4 py-1 text-[9px] uppercase tracking-widest text-slate-500 font-bold">Add to Crate</div>
+                              {crates.map(crate => (
+                                <button
+                                  key={crate.id}
+                                  type="button"
+                                  onClick={async () => {
+                                    if (track.id && crate.id) {
+                                      await addTrackToCrate(crate.id, track.id);
+                                      toast.success(`Added to ${crate.name}`);
+                                      setOpenActionsForTrackId(null);
+                                    }
+                                  }}
+                                  className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left"
+                                >
+                                  <FolderOpen className="w-3.5 h-3.5 opacity-50" />
+                                  {crate.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

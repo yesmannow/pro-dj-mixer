@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
 import { useMixerStore } from '@/store/mixerStore';
 
 function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
@@ -80,10 +80,24 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
 }
 
 export function Mixer() {
-  const { eqA, eqB, crossfader, crossfaderCurve, setEQ, setCrossfader, setCrossfaderCurve } = useMixerStore();
+  const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, setEQ, setVolume, setCrossfader, setCrossfaderCurve } = useMixerStore();
 
   const isDraggingCrossfader = useRef(false);
   const crossfaderRef = useRef<HTMLDivElement>(null);
+
+  const isDraggingVolA = useRef(false);
+  const isDraggingVolB = useRef(false);
+  const volARef = useRef<HTMLDivElement>(null);
+  const volBRef = useRef<HTMLDivElement>(null);
+
+  const setVolumeFromClientY = useCallback((deckId: 'A' | 'B', clientY: number) => {
+    const ref = deckId === 'A' ? volARef.current : volBRef.current;
+    if (!ref) return;
+    const rect = ref.getBoundingClientRect();
+    const y = Math.max(rect.top, Math.min(clientY, rect.bottom));
+    const ratio = (rect.bottom - y) / rect.height;
+    setVolume(deckId, ratio);
+  }, [setVolume]);
 
   const handleCrossfaderMove = useCallback((e: MouseEvent) => {
     if (!isDraggingCrossfader.current || !crossfaderRef.current) return;
@@ -118,8 +132,38 @@ export function Mixer() {
     setCrossfader(0);
   };
 
+  const stopVolDrag = useCallback(() => {
+    isDraggingVolA.current = false;
+    isDraggingVolB.current = false;
+  }, []);
+
+  const handleVolMove = useCallback((e: PointerEvent) => {
+    if (isDraggingVolA.current) setVolumeFromClientY('A', e.clientY);
+    if (isDraggingVolB.current) setVolumeFromClientY('B', e.clientY);
+  }, [setVolumeFromClientY]);
+
+  useEffect(() => {
+    window.addEventListener('pointermove', handleVolMove);
+    window.addEventListener('pointerup', stopVolDrag);
+    return () => {
+      window.removeEventListener('pointermove', handleVolMove);
+      window.removeEventListener('pointerup', stopVolDrag);
+    };
+  }, [handleVolMove, stopVolDrag]);
+
+  const startVolDrag = (deckId: 'A' | 'B') => (e: React.PointerEvent) => {
+    if (deckId === 'A') isDraggingVolA.current = true;
+    else isDraggingVolB.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    setVolumeFromClientY(deckId, e.clientY);
+  };
+
   // Map crossfader value (-1 to 1) to left percentage (0% to 100%)
   const crossfaderLeft = `${((crossfader + 1) / 2) * 100}%`;
+
+  // Map volume (0..1) to top offset within fader track
+  const volATop = `${(1 - volA) * 100}%`;
+  const volBTop = `${(1 - volB) * 100}%`;
 
   return (
     <div className="bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
@@ -136,8 +180,16 @@ export function Mixer() {
         </div>
       </div>
       <div className="flex justify-center gap-6 w-full px-4">
-        <div className="w-6 h-32 fader-track rounded-full border border-slate-800 relative">
-          <div className="absolute top-10 left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center">
+        <div
+          ref={volARef}
+          className="w-6 h-32 fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          onPointerDown={startVolDrag('A')}
+          onDoubleClick={() => setVolume('A', 0.75)}
+        >
+          <div
+            className="absolute left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center"
+            style={{ top: volATop, transform: 'translateY(-50%)' }}
+          >
             <div className="w-4 h-0.5 bg-slate-600"></div>
           </div>
         </div>
@@ -161,20 +213,28 @@ export function Mixer() {
             <div className="w-1.5 h-1 bg-green-500"></div>
           </div>
         </div>
-        <div className="w-6 h-32 fader-track rounded-full border border-slate-800 relative">
-          <div className="absolute bottom-4 left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center">
+        <div
+          ref={volBRef}
+          className="w-6 h-32 fader-track rounded-full border border-slate-800 relative cursor-pointer"
+          onPointerDown={startVolDrag('B')}
+          onDoubleClick={() => setVolume('B', 0.75)}
+        >
+          <div
+            className="absolute left-0 right-0 h-8 bg-slate-400 rounded-sm border border-slate-300 shadow-lg cursor-pointer flex items-center justify-center"
+            style={{ top: volBTop, transform: 'translateY(-50%)' }}
+          >
             <div className="w-4 h-0.5 bg-slate-600"></div>
           </div>
         </div>
       </div>
       <div className="w-full px-4 mt-auto">
-        <div 
+        <div
           className="h-8 w-full fader-track rounded-full border border-slate-800 relative cursor-pointer"
           ref={crossfaderRef}
           onMouseDown={handleCrossfaderDown}
           onDoubleClick={handleCrossfaderDoubleClick}
         >
-          <div 
+          <div
             className="absolute top-0 bottom-0 w-10 bg-slate-400 rounded-sm border border-slate-300 shadow-lg flex items-center justify-center"
             style={{ left: crossfaderLeft, transform: 'translateX(-50%)' }}
           >

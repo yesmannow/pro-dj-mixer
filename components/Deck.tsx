@@ -1,10 +1,12 @@
 'use client';
 
-import { Play } from 'lucide-react';
+import { Play, Flame, Music2, Waves, Drum } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useState, useCallback, DragEvent, useRef, useEffect } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useTrackCueStore } from '@/store/trackCueStore';
+import { useUIStore } from '@/store/uiStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { OverviewWaveform } from '@/components/OverviewWaveform';
 
@@ -16,7 +18,42 @@ export function Deck({ deckId }: DeckProps) {
   const isRight = deckId === 'B';
   const { loadTrack } = useDeckStore();
   const { tracks } = useLibraryStore();
-  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
+  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData, play } = useDeckAudio(deckId);
+  const { setCue, clearCue, loadCues, getCues } = useTrackCueStore();
+  const { autoPlayOnHotCue } = useUIStore();
+
+  const cuePoints = track?.id ? getCues(track.id) : [];
+
+  useEffect(() => {
+    if (track?.id) {
+      loadCues(track.id);
+    }
+  }, [track?.id, loadCues]);
+
+  const handleCueClick = async (slot: number) => {
+    if (!track?.id) return;
+
+    const existing = cuePoints.find(c => c.slot === slot);
+    if (existing) {
+      // Jump to cue
+      const delta = existing.time - currentTime;
+      scrubTrack(delta);
+
+      // Hot cue behavior: play if preference enabled
+      if (existing.type === 'hot' && !isPlaying && autoPlayOnHotCue) {
+        play();
+      }
+    } else {
+      // Set cue
+      await setCue(track.id, slot, currentTime, 'hot');
+    }
+  };
+
+  const handleCueRightClick = async (e: React.MouseEvent, slot: number) => {
+    e.preventDefault();
+    if (!track?.id) return;
+    await clearCue(track.id, slot);
+  };
 
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [pitchPercent, setPitchPercent] = useState(0);
@@ -335,18 +372,36 @@ export function Deck({ deckId }: DeckProps) {
 
           {/* Performance Pads 2x4 Grid */}
           <div className="grid grid-cols-4 gap-2">
-            {['HOT CUE 1', 'HOT CUE 2', 'HOT CUE 3', 'HOT CUE 4', 'VOCAL', 'MELODY', 'BASS', 'DRUMPS'].map((label, i) => (
-              <button
-                key={i}
-                className={clsx(
-                  "h-12 rounded-md bg-slate-800 border-b-4 border-slate-900 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none",
-                  isRight ? "hover:bg-deck-b/20 border-b-deck-b/20" : "hover:bg-deck-a/20 border-b-deck-a/20"
-                )}
-                onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
-              >
-                 <span className={clsx("text-[8px] font-bold", deckText)}>{label}</span>
-              </button>
-            ))}
+            {[1, 2, 3, 4, 5, 6, 7, 8].map((slot) => {
+              const cue = cuePoints.find(c => c.slot === slot);
+              const isActive = !!cue;
+
+              // Use specific icons/colors for placeholders if no cue is set
+              const getPadContent = () => {
+                if (cue) return <span className="text-[10px] font-black">{slot}</span>;
+                if (slot === 5) return <Music2 className="w-4 h-4 opacity-20" />;
+                if (slot === 6) return <Waves className="w-4 h-4 opacity-20" />;
+                if (slot === 7) return <Flame className="w-4 h-4 opacity-20" />;
+                if (slot === 8) return <Drum className="w-4 h-4 opacity-20" />;
+                return <span className="text-[10px] font-bold opacity-20">{slot}</span>;
+              };
+
+              return (
+                <button
+                  key={slot}
+                  className={clsx(
+                    "h-12 rounded-md border-b-4 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none",
+                    isActive
+                      ? (isRight ? "bg-deck-b text-slate-950 border-deck-b/50 shadow-[0_0_15px_#f000ff44]" : "bg-deck-a text-slate-950 border-deck-a/50 shadow-[0_0_15px_#00f2ff44]")
+                      : "bg-slate-800 border-slate-900 text-slate-500 hover:bg-slate-700"
+                  )}
+                  onClick={() => handleCueClick(slot)}
+                  onContextMenu={(e) => handleCueRightClick(e, slot)}
+                >
+                   {getPadContent()}
+                </button>
+              );
+            })}
           </div>
         </div>
 

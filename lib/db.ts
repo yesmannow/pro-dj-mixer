@@ -1,5 +1,36 @@
 import Dexie, { Table } from 'dexie';
 
+export interface HistoryItem {
+  id?: number;
+  trackId: number;
+  deckId: 'A' | 'B';
+  playedAt: number;
+}
+
+export interface Crate {
+  id?: number;
+  name: string;
+  createdAt: number;
+}
+
+export interface CrateTrack {
+  id?: number;
+  crateId: number;
+  trackId: number;
+  createdAt: number;
+}
+
+export interface CuePoint {
+  id?: number;
+  trackId: number;
+  slot: number; // 1-8
+  time: number; // seconds
+  type: 'hot' | 'memory';
+  label?: string;
+  color?: string;
+  updatedAt: number;
+}
+
 export interface Track {
   id?: number;
   title: string;
@@ -18,11 +49,32 @@ export interface Track {
 
 export class DJDatabase extends Dexie {
   tracks!: Table<Track, number>;
+  cuePoints!: Table<CuePoint, number>;
+  crates!: Table<Crate, number>;
+  crateTracks!: Table<CrateTrack, number>;
+  history!: Table<HistoryItem, number>;
 
   constructor() {
     super('DJDatabase');
     this.version(2).stores({
       tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl'
+    });
+    this.version(3).stores({
+      tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl',
+      cuePoints: '++id, trackId, [trackId+slot]'
+    });
+    this.version(4).stores({
+      tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl',
+      cuePoints: '++id, trackId, [trackId+slot]',
+      crates: '++id, &name, createdAt',
+      crateTracks: '++id, crateId, trackId, [crateId+trackId]'
+    });
+    this.version(5).stores({
+      tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl',
+      cuePoints: '++id, trackId, [trackId+slot]',
+      crates: '++id, &name, createdAt',
+      crateTracks: '++id, crateId, trackId, [crateId+trackId]',
+      history: '++id, trackId, playedAt'
     });
   }
 }

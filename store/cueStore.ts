@@ -20,10 +20,20 @@ export const useCueStore = create<CueState>((set, get) => ({
 
   addToCue: (deckId, track) => {
     if (deckId === 'A') {
-      set((state) => ({ queueA: [...state.queueA, track] }));
+      set((state) => {
+        if (track.id != null && state.queueA.some((t) => t.id === track.id)) {
+          return state;
+        }
+        return { queueA: [...state.queueA, track] };
+      });
       return;
     }
-    set((state) => ({ queueB: [...state.queueB, track] }));
+    set((state) => {
+      if (track.id != null && state.queueB.some((t) => t.id === track.id)) {
+        return state;
+      }
+      return { queueB: [...state.queueB, track] };
+    });
   },
 
   removeFromCue: (deckId, trackId) => {
