@@ -57,15 +57,26 @@ export class AudioEngine {
     };
   }
 
-  public getEqualPowerGains(crossfaderValue: number): { gainA: number; gainB: number } {
+  public getCrossfaderGains(
+    crossfaderValue: number,
+    curve: 'blend' | 'cut' = 'blend'
+  ): { gainA: number; gainB: number } {
     // crossfaderValue ranges from -1 (Deck A) to 1 (Deck B)
-    // Convert to 0 to 1 range
-    const x = (crossfaderValue + 1) / 2;
-    
-    // Equal power curve: cos(x * pi/2) for A, sin(x * pi/2) for B
+    const x = (crossfaderValue + 1) / 2; // 0 -> 1
+
+    if (curve === 'cut') {
+      if (x <= 0.05) {
+        return { gainA: 1, gainB: 0 };
+      }
+      if (x >= 0.95) {
+        return { gainA: 0, gainB: 1 };
+      }
+      return { gainA: 1, gainB: 1 };
+    }
+
+    // Equal power blend curve
     const gainA = Math.cos(x * 0.5 * Math.PI);
-    const gainB = Math.sin(x * 0.5 * Math.PI);
-    
+    const gainB = Math.cos((1 - x) * 0.5 * Math.PI);
     return { gainA, gainB };
   }
 }

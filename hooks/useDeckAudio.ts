@@ -10,6 +10,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const mixerState = useMixerStore();
   const eqState = deckId === 'A' ? mixerState.eqA : mixerState.eqB;
   const crossfader = mixerState.crossfader;
+  const crossfaderCurve = mixerState.crossfaderCurve ?? 'blend';
   
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
@@ -42,7 +43,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
     if (gainRef.current) {
       // Calculate final volume based on deck volume and crossfader
-      const { gainA, gainB } = engine.getEqualPowerGains(crossfader);
+      const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
       const crossfaderGain = deckId === 'A' ? gainA : gainB;
       gainRef.current.gain.value = deckState.volume * crossfaderGain;
     }
@@ -53,7 +54,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       eqChainRef.current.mid.gain.value = mapEQ(eqState.mid);
       eqChainRef.current.high.gain.value = mapEQ(eqState.high);
     }
-  }, [deckState.volume, crossfader, eqState, deckId]);
+  }, [deckState.volume, crossfader, crossfaderCurve, eqState, deckId]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();

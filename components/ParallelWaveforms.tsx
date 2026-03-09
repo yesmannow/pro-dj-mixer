@@ -174,7 +174,7 @@ export function ParallelWaveforms() {
   return (
     <div 
        ref={containerRef} 
-       className="w-full h-full bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative"
+       className="h-24 md:h-32 xl:h-40 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative"
     >
       <canvas 
         ref={canvasRef} 

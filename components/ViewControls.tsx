@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, SlidersHorizontal, ListMusic } from 'lucide-react';
+import { PanelTop, PanelRight, PanelBottom } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useUIStore } from '@/store/uiStore';
 
@@ -26,7 +26,7 @@ export function ViewControls() {
         )}
         title="Toggle Waveforms"
       >
-        <Activity className="w-4 h-4" />
+        <PanelTop className="w-4 h-4" />
       </button>
       
       <div className="w-px h-4 bg-slate-700 mx-1"></div>
@@ -41,7 +41,7 @@ export function ViewControls() {
         )}
         title="Toggle Library"
       >
-        <ListMusic className="w-4 h-4" />
+        <PanelBottom className="w-4 h-4" />
       </button>
 
       <div className="w-px h-4 bg-slate-700 mx-1"></div>
@@ -56,7 +56,7 @@ export function ViewControls() {
         )}
         title="Toggle FX Dock"
       >
-        <SlidersHorizontal className="w-4 h-4" />
+        <PanelRight className="w-4 h-4" />
       </button>
     </div>
   );

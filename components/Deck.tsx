@@ -6,6 +6,7 @@ import { useState, useCallback, DragEvent, useRef, useEffect } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
+import { OverviewWaveform } from '@/components/OverviewWaveform';
 
 interface DeckProps {
   deckId: 'A' | 'B';
@@ -18,6 +19,7 @@ export function Deck({ deckId }: DeckProps) {
   const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
   
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
+  const [pitchPercent, setPitchPercent] = useState(0);
   const [tapTimes, setTapTimes] = useState<number[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -161,13 +163,25 @@ export function Deck({ deckId }: DeckProps) {
   const handleDrop = (e: DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
-    const trackId = e.dataTransfer.getData('text/plain');
-    if (trackId) {
-      const t = tracks.find(t => t.id === Number(trackId));
-      if (t) {
-        loadTrack(deckId, t);
-        setCurrentBpm(Number(t.bpm));
+
+    const json = e.dataTransfer.getData('application/json');
+    if (json) {
+      try {
+        const droppedTrack = JSON.parse(json);
+        if (droppedTrack) {
+          loadTrack(deckId, droppedTrack);
+          setCurrentBpm(Number(droppedTrack.bpm) || currentBpm);
+        }
+      } catch {
+        // Fallback: legacy numeric id support
+        const trackId = e.dataTransfer.getData('text/plain');
+        if (trackId) {
+          const t = tracks.find((t) => t.id === Number(trackId));
+          if (t) {
+            loadTrack(deckId, t);
+            setCurrentBpm(Number(t.bpm));
+          }
+        }
       }
     }
   };
@@ -185,6 +199,17 @@ export function Deck({ deckId }: DeckProps) {
   const bpm = track ? currentBpm : '--';
   const keySignature = track?.key || '--';
   const timeRemaining = track ? formatTime(duration - currentTime) : '00:00.00';
+
+  const handleOverviewScrub = useCallback(
+    (targetTime: number) => {
+      if (!duration || !track) return;
+      const clamped = Math.max(0, Math.min(targetTime, duration));
+      const delta = clamped - currentTime;
+      if (Math.abs(delta) < 0.01) return;
+      scrubTrack(delta);
+    },
+    [duration, track, currentTime, scrubTrack]
+  );
 
   const renderJogWheel = () => (
     <div className="flex flex-col gap-4 items-center">
@@ -236,64 +261,23 @@ export function Deck({ deckId }: DeckProps) {
     <div 
       ref={containerRef}
       className={clsx(
-        "bg-slate-900/40 backdrop-blur-xl rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl",
-        isDragOver ? `${deckBorder} ${deckBg}/10` : "border-white/5"
+        "bg-slate-900/40 backdrop-blur-xl rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
+        isDragOver
+          ? "scale-[1.02] ring-2 ring-offset-0 ring-[var(--deck-accent, #00f2ff)] border-transparent"
+          : "border-white/5"
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <div className="waveform-container relative h-20 bg-black/40 rounded-lg overflow-hidden border border-slate-800/50">
-        <div className="absolute inset-0 flex items-center justify-center opacity-30">
-          <svg height="100%" preserveAspectRatio="none" width="100%">
-            <path
-              d={!isRight ? 'M0 40 Q 50 10, 100 40 T 200 40 T 300 40 T 400 40 T 500 40' : 'M0 40 Q 50 70, 100 40 T 200 40 T 300 40 T 400 40 T 500 40'}
-              fill="transparent"
-              stroke={deckStroke}
-              strokeWidth="2"
-            ></path>
-            <path
-              d={!isRight ? 'M0 45 Q 60 20, 120 45 T 240 45 T 360 45 T 480 45 T 600 45' : 'M0 35 Q 60 60, 120 35 T 240 35 T 360 35 T 480 35 T 600 35'}
-              fill="transparent"
-              stroke="#f43f5e"
-              strokeWidth="1"
-            ></path>
-          </svg>
-        </div>
-        <div className={clsx("absolute left-1/2 top-0 bottom-0 w-0.5 z-10", deckBg + "/80", isRight ? "shadow-[0_0_8px_#f000ff]" : "shadow-[0_0_8px_#00f2ff]")}></div>
-        
-        {/* Playhead Progress */}
-        {duration > 0 && (
-          <div 
-            className={clsx("absolute top-0 bottom-0 z-0", deckBg + "/20")} 
-            style={{ width: `${(currentTime / duration) * 100}%` }}
-          />
-        )}
-
-        <div className="absolute inset-0 flex items-end gap-1 px-4 pb-1 pointer-events-none">
-          <div className={clsx("text-primary text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white", deckBg + "/80")}>
-            INTRO
-          </div>
-          <div className="bg-yellow-500/80 text-primary text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white">
-            VERSE
-          </div>
-          <div className="bg-purple-500/80 text-white text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white">
-            DROP
-          </div>
-        </div>
-        <div className="absolute top-1 left-4 flex gap-2 pointer-events-none">
-          <div className="w-4 h-4 rounded bg-red-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">1</div>
-          <div className="w-4 h-4 rounded bg-green-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">2</div>
-          <div className="w-4 h-4 rounded bg-blue-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">3</div>
-        </div>
-        <div className="absolute top-1 right-2 flex gap-1">
-          {['V', 'D', 'B', 'M'].map(btn => (
-            <button key={btn} className={clsx("w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold transition-colors", deckText, `hover:${deckBg}`, "hover:text-primary")}>
-              {btn}
-            </button>
-          ))}
-        </div>
-      </div>
+      <OverviewWaveform
+        deckId={deckId}
+        duration={duration}
+        currentTime={currentTime}
+        track={track}
+        accentColor={deckStroke}
+        onScrubTo={handleOverviewScrub}
+      />
       <div className="flex items-center justify-between">
         <div>
           <h3 ref={titleGlowRef} className={clsx("font-[800] tracking-tight neon-text-glow text-[length:var(--step-1)]", deckText)}>{title}</h3>
@@ -353,6 +337,40 @@ export function Deck({ deckId }: DeckProps) {
                  <span className={clsx("text-[8px] font-bold", deckText)}>{label}</span>
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Pitch / Tempo Fader */}
+        <div className="flex flex-col items-center gap-2">
+          <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-1">
+            Pitch
+          </div>
+          <div className="relative h-32 w-8 fader-track rounded-full border border-slate-800 bg-slate-950/40 flex items-center justify-center">
+            <div className="absolute inset-x-2 h-0.5 bg-slate-600" />
+            <div
+              className={clsx(
+                'absolute -left-1 w-2 h-2 rounded-full transition-all',
+                Math.abs(pitchPercent) < 0.001
+                  ? 'bg-lime-400 shadow-[0_0_8px_#22c55e]'
+                  : 'bg-slate-700'
+              )}
+            />
+            <input
+              type="range"
+              min={-8}
+              max={8}
+              step={0.1}
+              value={pitchPercent}
+              onChange={(e) => {
+                const raw = parseFloat(e.target.value);
+                const snapped = raw > -0.8 && raw < 0.8 ? 0 : raw;
+                setPitchPercent(snapped);
+              }}
+              className="appearance-none w-full h-24 rotate-[-90deg] outline-none bg-transparent [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow-[0_0_6px_#00f2ff]"
+            />
+          </div>
+          <div className="font-mono text-[10px] text-slate-300">
+            {pitchPercent.toFixed(2)}%
           </div>
         </div>
 

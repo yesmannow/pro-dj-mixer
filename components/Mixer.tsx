@@ -80,7 +80,7 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
 }
 
 export function Mixer() {
-  const { eqA, eqB, crossfader, setEQ, setCrossfader } = useMixerStore();
+  const { eqA, eqB, crossfader, crossfaderCurve, setEQ, setCrossfader, setCrossfaderCurve } = useMixerStore();
 
   const isDraggingCrossfader = useRef(false);
   const crossfaderRef = useRef<HTMLDivElement>(null);
@@ -181,15 +181,33 @@ export function Mixer() {
             <div className="h-4 w-0.5 bg-slate-600 pointer-events-none"></div>
           </div>
         </div>
-        <div className="flex items-center justify-center gap-1.5 mb-1 mt-2">
-          <div className="w-1 h-1 rounded-full bg-accent animate-pulse shadow-[0_0_5px_#00f2ff]"></div>
-          <span className="text-[7px] text-accent font-bold uppercase tracking-tighter">
-            Crossfader Fusion™ Active
-          </span>
+        <div className="mt-3 flex flex-col items-center gap-2">
+          <div className="inline-flex rounded-full bg-slate-900/80 p-1 border border-slate-700 text-[9px]">
+            <button
+              className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${
+                crossfaderCurve === 'blend'
+                  ? 'bg-accent text-slate-950 shadow-[0_0_8px_#00f2ff]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              onClick={() => setCrossfaderCurve('blend')}
+            >
+              Blend
+            </button>
+            <button
+              className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${
+                crossfaderCurve === 'cut'
+                  ? 'bg-accent text-slate-950 shadow-[0_0_8px_#00f2ff]'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              onClick={() => setCrossfaderCurve('cut')}
+            >
+              Cut
+            </button>
+          </div>
+          <p className="text-[8px] uppercase tracking-widest text-center text-slate-500">
+            Crossfader ({crossfaderCurve === 'blend' ? 'Equal Power' : 'Scratch Cut'})
+          </p>
         </div>
-        <p className="text-[8px] uppercase tracking-widest text-center mt-2 text-slate-500">
-          Crossfader
-        </p>
       </div>
     </div>
   );

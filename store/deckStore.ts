@@ -10,6 +10,7 @@ export interface DeckState {
   buffer: AudioBuffer | null;
   isLoading: boolean;
   volume: number;
+  pitchPercent: number;
 }
 
 interface DeckStore {
@@ -18,6 +19,7 @@ interface DeckStore {
   loadTrack: (deckId: 'A' | 'B', track: Track) => Promise<void>;
   togglePlay: (deckId: 'A' | 'B') => void;
   setVolume: (deckId: 'A' | 'B', volume: number) => void;
+  setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
 }
 
 const initialDeckState: DeckState = {
@@ -28,6 +30,7 @@ const initialDeckState: DeckState = {
   buffer: null,
   isLoading: false,
   volume: 1,
+  pitchPercent: 0,
 };
 
 export const useDeckStore = create<DeckStore>((set, get) => ({
@@ -82,6 +85,13 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
     const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
     set((state) => ({
       [deckKey]: { ...state[deckKey], volume }
+    }));
+  },
+
+  setPitch: (deckId: 'A' | 'B', pitchPercent: number) => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    set((state) => ({
+      [deckKey]: { ...state[deckKey], pitchPercent }
     }));
   }
 }));

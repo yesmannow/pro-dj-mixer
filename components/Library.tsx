@@ -74,14 +74,14 @@ export function Library() {
     }
   };
 
-  const handleTrackDragStart = (e: React.DragEvent, trackId: number) => {
-    e.dataTransfer.setData('text/plain', trackId.toString());
+  const handleTrackDragStart = (e: React.DragEvent, track: any) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(track));
     e.dataTransfer.effectAllowed = 'copy';
   };
 
   return (
     <div 
-      className="flex-1 min-h-[300px] bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
+      className="h-[40vh] min-h-[250px] max-h-[500px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -134,25 +134,25 @@ export function Library() {
           <table className="w-full text-left">
             <thead className="bg-slate-900/80 sticky top-0 border-b border-slate-800 z-20">
               <tr>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   #
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   Title
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   Artist
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   BPM
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   Key
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
                   Duration
                 </th>
-                <th className="px-6 py-3 text-xs uppercase tracking-wider text-slate-500 font-bold text-right">
+                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold text-right">
                   Actions
                 </th>
               </tr>
@@ -161,18 +161,18 @@ export function Library() {
               {/* Processing Tracks */}
               {processingTracks.map((pt, idx) => (
                 <tr key={`processing-${pt.id}`} className="bg-slate-800/20 animate-pulse">
-                  <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-6 py-4 text-sm flex items-center gap-3">
+                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+                  <td className="px-4 py-4 text-sm flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center border border-slate-700">
                       <Loader2 className="w-4 h-4 text-accent animate-spin" />
                     </div>
                     <span className="font-medium text-slate-400 italic">Analyzing {pt.name}...</span>
                   </td>
                   <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-6 py-4"></td>
+                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+                  <td className="px-4 py-4"></td>
                 </tr>
               ))}
 
@@ -183,13 +183,13 @@ export function Library() {
                 <tr
                   key={track.id}
                   draggable
-                  onDragStart={(e) => handleTrackDragStart(e, track.id!)}
+                  onDragStart={(e) => handleTrackDragStart(e, track)}
                   className="group cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/40"
                 >
-                  <td className="px-6 py-4 text-sm text-slate-500 font-mono">
+                  <td className="px-4 py-4 text-sm text-slate-500 font-mono">
                     {index + 1}
                   </td>
-                  <td className="px-6 py-4 text-sm flex items-center gap-3">
+                  <td className="px-4 py-4 text-sm flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700 overflow-hidden relative">
                       <div className="absolute inset-0 bg-[radial-gradient(circle,transparent_20%,#000_120%)] z-10"></div>
                       <div className="w-full h-full bg-slate-800 flex items-center justify-center" style={{ backgroundImage: 'repeating-radial-gradient(#1e293b 0, #1e293b 2px, #0f172a 3px, #0f172a 4px)' }}>
@@ -205,9 +205,9 @@ export function Library() {
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
-                  <td className="px-6 py-4 text-sm text-slate-300 font-mono tabular-nums font-medium">{track.bpm}</td>
-                  <td className="px-6 py-4 text-sm">
+                  <td className="px-4 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
+                  <td className="px-4 py-4 text-sm text-slate-300 font-mono tabular-nums font-medium">{track.bpm}</td>
+                  <td className="px-4 py-4 text-sm">
                     <span 
                       className="px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center"
                       style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
@@ -215,8 +215,8 @@ export function Library() {
                       {track.key || '--'}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
-                  <td className="px-6 py-4 text-right relative group/menu">
+                  <td className="px-4 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
+                  <td className="px-4 py-4 text-right relative group/menu">
                     <button className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent hover:border-accent transition-all duration-200">
                       <Plus className="w-4 h-4" />
                     </button>
@@ -246,7 +246,7 @@ export function Library() {
               })}
               {tracks.length === 0 && processingTracks.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center gap-2">
                       <UploadCloud className="w-8 h-8 text-slate-600" />
                       <p>No tracks in library. Drag and drop audio files here to analyze.</p>
