@@ -19,7 +19,7 @@ export function Library() {
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
 
-  const { tracks, processingTracks, loadTracks, seedLibrary, queueFilesForIngestion, isProcessingQueue, queueProgress } = useLibraryStore();
+  const { tracks, processingTracks, loadTracks, seedLibrary, queueFilesForIngestion, loadFromCloud, isProcessingQueue, queueProgress } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
@@ -144,6 +144,18 @@ export function Library() {
     e.dataTransfer.effectAllowed = 'copy';
   };
 
+  const handleLoadR2TestTrack = async () => {
+    await loadFromCloud([
+      {
+        id: 'r2-test-1',
+        title: 'Tortas de Jamon',
+        artist: 'R2 Public Demo',
+        url: 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev/tortas-de-jamon.mp3',
+        artworkUrl: 'https://images.unsplash.com/photo-1507878866276-a947ef722fee?auto=format&fit=crop&w=300&q=60'
+      }
+    ]);
+  };
+
   return (
     <div
       className={clsx(
@@ -226,6 +238,14 @@ export function Library() {
           >
             <span className="text-accent">+</span>
             ADD MUSIC
+          </button>
+          <button
+            onClick={handleLoadR2TestTrack}
+            disabled={isProcessingQueue}
+            className="flex items-center gap-2 px-4 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-full text-[11px] font-bold text-accent backdrop-blur-md shadow-lg transition-all flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            LOAD R2 TEST TRACK
           </button>
         </div>
 

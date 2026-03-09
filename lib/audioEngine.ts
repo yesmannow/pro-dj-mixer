@@ -38,7 +38,14 @@ export class AudioEngine {
   public async loadBuffer(file: File | Blob | string): Promise<AudioBuffer> {
     let arrayBuffer: ArrayBuffer;
     if (typeof file === 'string') {
-      const response = await fetch(file);
+      const response = await fetch(file, { mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio from cloud: ${response.status} ${response.statusText}`);
+      }
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/xml')) {
+        throw new Error('Cloudflare returned an XML error instead of an audio file. Check the exact file URL/Path.');
+      }
       arrayBuffer = await response.arrayBuffer();
     } else {
       arrayBuffer = await file.arrayBuffer();

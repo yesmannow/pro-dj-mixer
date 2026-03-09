@@ -3,12 +3,12 @@
 import { useCallback } from 'react';
 
 const pads = [
-  { name: 'Kick', color: 'bg-red-500' },
-  { name: 'Snare', color: 'bg-blue-500' },
-  { name: 'Clap', color: 'bg-green-500' },
-  { name: 'Airhorn', color: 'bg-yellow-500' },
-  { name: 'FX1', color: 'bg-purple-500' },
-  { name: 'FX2', color: 'bg-pink-500' },
+  { name: 'Kick', color: '#D4AF37' },      // Gold
+  { name: 'Snare', color: '#E11D48' },     // Crimson
+  { name: 'Clap', color: '#1A1610' },      // Slate
+  { name: 'Airhorn', color: '#F5D76E' },   // Soft gold highlight
+  { name: 'FX1', color: '#A97142' },       // Bronze
+  { name: 'FX2', color: '#7C2D12' },       // Deep red-brown
 ];
 
 export function Sampler() {
@@ -93,13 +93,14 @@ export function Sampler() {
   }, []);
 
   return (
-    <div className="bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 p-4 shadow-2xl">
+    <div className="bg-studio-black/70 backdrop-blur-xl rounded-xl border border-studio-gold/10 p-4 shadow-2xl">
       <h3 className="text-sm font-bold text-white tracking-tight mb-4">SAMPLER</h3>
       <div className="grid grid-cols-2 grid-rows-3 gap-2">
         {pads.map((pad) => (
           <button
             key={pad.name}
-            className={`h-16 ${pad.color} rounded-lg border border-white/10 flex items-center justify-center text-white font-bold text-sm hover:brightness-110 active:scale-95 transition-all`}
+            className="h-16 rounded-lg border border-white/10 flex items-center justify-center text-slate-950 font-bold text-sm hover:brightness-110 active:scale-95 transition-all shadow-[0_8px_16px_rgba(0,0,0,0.35)]"
+            style={{ backgroundColor: pad.color }}
             onClick={() => playSound(pad.name)}
           >
             {pad.name}

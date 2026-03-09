@@ -6,11 +6,10 @@ import { useUIStore } from '@/store/uiStore';
 import { motion, AnimatePresence } from 'motion/react';
 
 const ACCENT_COLORS = [
-  { name: 'Cyan', value: '#00f2ff' },
-  { name: 'Pink', value: '#f000ff' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Green', value: '#22c55e' },
+  { name: 'Gold', value: '#D4AF37' },
+  { name: 'Crimson', value: '#E11D48' },
+  { name: 'Bronze', value: '#A97142' },
+  { name: 'Onyx', value: '#1A1610' },
 ];
 
 export function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
@@ -31,7 +30,7 @@ export function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl z-[101] overflow-hidden"
+            className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-studio-black border border-studio-gold/20 rounded-2xl shadow-2xl z-[101] overflow-hidden"
           >
             <div className="p-6 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -40,11 +39,11 @@ export function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
               </div>
               <button
                 onClick={onClose}
-                className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+                    className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
 
             <div className="p-6 flex flex-col gap-8">
               {/* Accent Color */}
@@ -77,9 +76,9 @@ export function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
                 <label className="text-xs uppercase tracking-widest text-slate-500 font-bold">
                   Deck Behavior
                 </label>
-                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-xl border border-slate-700/50">
+                <div className="flex items-center justify-between p-4 bg-studio-slate/60 rounded-xl border border-studio-gold/15">
                   <div className="flex items-center gap-3">
-                    <Zap className="w-4 h-4 text-yellow-500" />
+                    <Zap className="w-4 h-4 text-accent" />
                     <div>
                       <div className="text-sm font-medium text-slate-200">Auto-play on Hot Cue</div>
                       <div className="text-[10px] text-slate-500 mt-0.5">Start playback automatically when jumping to a cue point</div>
@@ -101,10 +100,10 @@ export function SettingsPanel({ isOpen, onClose }: { isOpen: boolean; onClose: (
               </div>
             </div>
 
-            <div className="p-6 bg-slate-950/50 border-t border-slate-800 flex justify-end">
+            <div className="p-6 bg-studio-black/80 border-t border-studio-gold/20 flex justify-end">
               <button
                 onClick={onClose}
-                className="px-6 py-2 bg-accent text-slate-950 font-bold rounded-lg hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_15px_rgba(0,242,255,0.3)]"
+                className="px-6 py-2 bg-accent text-slate-950 font-bold rounded-lg hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_15px_rgba(212,175,55,0.35)]"
               >
                 Done
               </button>

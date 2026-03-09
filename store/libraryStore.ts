@@ -12,6 +12,7 @@ interface LibraryState {
   addTrack: (file: File) => Promise<void>;
   seedLibrary: () => Promise<void>;
   queueFilesForIngestion: (files: File[]) => Promise<void>;
+  loadFromCloud: (cloudTracks: { id: string; title: string; artist: string; url: string; artworkUrl?: string }[]) => Promise<void>;
 }
 
 const mockAnalysis = async (file: File | string) => {
@@ -64,8 +65,14 @@ if (typeof globalThis.window !== 'undefined') {
   worker = new Worker(new URL('../lib/analysisWorker.ts', import.meta.url), { type: 'module' });
 }
 
+const formatDuration = (seconds: number) => {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+};
+
 // Helper to wrap the worker postMessage in a Promise
-const analyzeAudioFile = (file: File): Promise<AnalysisResponse> => {
+const analyzeAudio = (payload: { buffer?: ArrayBuffer; url?: string; filename?: string }): Promise<AnalysisResponse> => {
   return new Promise((resolve, reject) => {
     const runAsync = async () => {
       if (!worker) {
@@ -73,7 +80,6 @@ const analyzeAudioFile = (file: File): Promise<AnalysisResponse> => {
         return;
       }
 
-      const arrayBuffer = await file.arrayBuffer();
       const requestId = crypto.randomUUID();
 
       const handleMessage = (e: MessageEvent<AnalysisResponse>) => {
@@ -85,13 +91,14 @@ const analyzeAudioFile = (file: File): Promise<AnalysisResponse> => {
 
       worker.addEventListener('message', handleMessage);
 
-      const request: AnalysisRequest = {
-        id: requestId,
-        buffer: arrayBuffer,
-        filename: file.name
-      };
+      const request: AnalysisRequest = { id: requestId, filename: payload.filename };
+      if (payload.buffer) request.buffer = payload.buffer;
+      if (payload.url) request.url = payload.url;
 
-      worker.postMessage(request, [request.buffer]); // Transfer buffer ownership to save memory
+      const transferables: Transferable[] = [];
+      if (payload.buffer) transferables.push(payload.buffer);
+
+      worker.postMessage(request, transferables); // Transfer buffer ownership to save memory
     };
 
     runAsync().catch((error) => reject(error instanceof Error ? error : new Error('Analysis failed')));
@@ -134,12 +141,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
         try {
           // Offload to Web Worker
-          const res = await analyzeAudioFile(file);
-
-          // Convert duration to mm:ss
-          const mins = Math.floor(res.duration / 60);
-          const secs = Math.floor(res.duration % 60);
-          const formattedDuration = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+          const arrayBuffer = await file.arrayBuffer();
+          const res = await analyzeAudio({ buffer: arrayBuffer, filename: file.name });
 
           const artworkUrl = URL.createObjectURL(file);
 
@@ -148,7 +151,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
             artist: res.artist || 'Unknown Artist',
             bpm: res.bpm.toString(),
             key: res.keySignature ?? '--',
-            duration: formattedDuration,
+            duration: formatDuration(res.duration),
             energy: "Medium", // Algorithm pending
             hasVocal: false, // Algorithm pending
             fileBlob: file,
@@ -267,6 +270,70 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     // Reload to reflect any inserts/backfills
     await get().loadTracks();
+  },
+
+  loadFromCloud: async (cloudTracks) => {
+    if (get().isProcessingQueue) {
+      toast.error('A queue is already processing. Please wait.');
+      return;
+    }
+
+    if (cloudTracks.length === 0) {
+      toast.error('No cloud tracks supplied.');
+      return;
+    }
+
+    set({ isProcessingQueue: true, queueProgress: `Fetching ${cloudTracks.length} cloud track(s)...` });
+
+    let successCount = 0;
+
+    for (let i = 0; i < cloudTracks.length; i++) {
+      const track = cloudTracks[i];
+      const tempId = `${track.id}-${Date.now()}`;
+      set(state => ({
+        processingTracks: [...state.processingTracks, { id: tempId, name: track.title }]
+      }));
+
+      try {
+        set({ queueProgress: `Downloading & analyzing ${i + 1} of ${cloudTracks.length}: ${track.title}` });
+        const res = await analyzeAudio({ url: track.url, filename: track.title });
+
+        const newTrack: Track = {
+          title: res.title || track.title,
+          artist: res.artist || track.artist || 'Unknown Artist',
+          bpm: res.bpm.toString(),
+          key: res.keySignature ?? '--',
+          duration: formatDuration(res.duration),
+          energy: "Medium", // Placeholder until energy analysis exists
+          hasVocal: false,  // Placeholder until vocal detection exists
+          audioUrl: track.url,
+          artworkUrl: track.artworkUrl || pickRandomArtworkUrl(),
+          overviewWaveform: Array.from(res.overviewPeaks),
+          createdAt: Date.now(),
+        };
+
+        const id = await db.tracks.add(newTrack);
+        newTrack.id = id;
+
+        set(state => ({
+          tracks: [newTrack, ...state.tracks],
+        }));
+        successCount++;
+      } catch (error) {
+        console.error(`Failed to ingest cloud track ${track.title}:`, error);
+        toast.error(`Failed to ingest ${track.title}`);
+      } finally {
+        set(state => ({
+          processingTracks: state.processingTracks.filter(t => t.id !== tempId)
+        }));
+        await yieldToUi();
+      }
+    }
+
+    set({ isProcessingQueue: false, queueProgress: '' });
+    if (successCount > 0) {
+      toast.success(`Imported ${successCount} cloud track${successCount > 1 ? 's' : ''}.`);
+    }
   },
 
   addTrack: async (file: File) => {

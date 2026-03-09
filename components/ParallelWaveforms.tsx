@@ -24,9 +24,9 @@ export function ParallelWaveforms() {
     let playheadA = 0; // seconds
     let playheadB = 0; // seconds
 
-    // Hardcode colors matching globals.css
-    const COLOR_A = '#00f2ff';
-    const COLOR_B = '#f000ff';
+    // Hardcode colors matching globals.css (Urban Luxury palette)
+    const COLOR_A = '#D4AF37'; // Studio Gold
+    const COLOR_B = '#E11D48'; // Studio Crimson
 
     const resizeCanvas = () => {
       canvas.width = container.clientWidth;

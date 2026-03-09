@@ -1,6 +1,7 @@
 export interface AnalysisRequest {
   id: string;
-  buffer: ArrayBuffer;
+  buffer?: ArrayBuffer;
+  url?: string;
   filename?: string;
 }
 
@@ -127,7 +128,7 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
   return bestBpm;
 };
 
-const handleAnalyze = async (request: AnalysisRequest): Promise<AnalysisResponse> => {
+const handleAnalyze = async (request: AnalysisRequest & { buffer: ArrayBuffer }): Promise<AnalysisResponse> => {
   const offlineContext = new OfflineAudioContext(1, 1, 44100);
   const decoded = await offlineContext.decodeAudioData(request.buffer.slice(0));
   const mono = mixDown(decoded);
@@ -147,9 +148,28 @@ const ctx: DedicatedWorkerGlobalScope = self as any;
 ctx.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const request = event.data;
   try {
-    const response = await handleAnalyze(request);
+    let buffer: ArrayBuffer | undefined = request.buffer;
+
+    if (!buffer && request.url) {
+      const response = await fetch(request.url, { mode: 'cors' });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio from cloud: ${response.status} ${response.statusText}`);
+      }
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/xml')) {
+        throw new Error('Cloudflare returned an XML error instead of an audio file. Check the exact file URL/Path.');
+      }
+      buffer = await response.arrayBuffer();
+    }
+
+    if (!buffer) {
+      throw new Error('No audio data provided');
+    }
+
+    const response = await handleAnalyze({ ...request, buffer });
     ctx.postMessage(response, [response.overviewPeaks.buffer]);
   } catch (error) {
+    console.error('analysisWorker failed to analyze audio:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     const response: AnalysisResponse = {
       id: request.id,

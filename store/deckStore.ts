@@ -52,10 +52,10 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
       await engine.resume();
 
       let buffer: AudioBuffer;
-      if (track.fileBlob) {
-        buffer = await engine.loadBuffer(track.fileBlob);
-      } else if (track.audioUrl) {
+      if (track.audioUrl) {
         buffer = await engine.loadBuffer(track.audioUrl);
+      } else if (track.fileBlob) {
+        buffer = await engine.loadBuffer(track.fileBlob);
       } else {
         // Fallback for seeded tracks without Blob
         buffer = await engine.loadBuffer('https://actions.google.com/sounds/v1/alarms/bugle_tune.ogg');

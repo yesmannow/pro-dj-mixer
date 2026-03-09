@@ -39,8 +39,8 @@ const getIconBySlot = (slot: number) => {
 
 const getLitPadClasses = (isRight: boolean) =>
   isRight
-    ? 'bg-deck-b text-slate-950 border-deck-b/50 shadow-[0_0_15px_#f000ff44]'
-    : 'bg-deck-a text-slate-950 border-deck-a/50 shadow-[0_0_15px_#00f2ff44]';
+    ? 'bg-deck-b text-slate-950 border-deck-b/50 shadow-[0_0_15px_rgba(225,29,72,0.35)]'
+    : 'bg-deck-a text-slate-950 border-deck-a/50 shadow-[0_0_15px_rgba(212,175,55,0.35)]';
 
 const getPadClasses = (isRight: boolean, isStemPad: boolean, isStemMuted: boolean, isCueActive: boolean) => {
   if (isStemPad) {
@@ -54,7 +54,7 @@ const getPadClasses = (isRight: boolean, isStemPad: boolean, isStemMuted: boolea
     return getLitPadClasses(isRight);
   }
 
-  return 'bg-slate-800 border-slate-900 text-slate-500 hover:bg-slate-700';
+  return 'bg-slate-900/70 border-slate-800 text-slate-400 hover:bg-slate-800';
 };
 
 export function PerformancePads({
