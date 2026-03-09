@@ -15,7 +15,7 @@ export function Deck({ deckId }: DeckProps) {
   const isRight = deckId === 'B';
   const { loadTrack } = useDeckStore();
   const { tracks } = useLibraryStore();
-  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub } = useDeckAudio(deckId);
+  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
   
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [tapTimes, setTapTimes] = useState<number[]>([]);
@@ -26,24 +26,62 @@ export function Deck({ deckId }: DeckProps) {
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
 
-  // Auto-rotation when playing
+  // Deck specific identity colors and styling hooks
+  const deckColorName = isRight ? 'deck-b' : 'deck-a';
+  const deckText = isRight ? 'text-deck-b' : 'text-deck-a';
+  const deckBorder = isRight ? 'border-deck-b' : 'border-deck-a';
+  const deckBg = isRight ? 'bg-deck-b' : 'bg-deck-a';
+  const deckStroke = isRight ? '#f000ff' : '#00f2ff';
+  
+  const containerRef = useRef<HTMLDivElement>(null);
+  const jogWheelDataRingRef = useRef<SVGCircleElement>(null);
+  const titleGlowRef = useRef<HTMLHeadingElement>(null);
+
+  // Auto-rotation when playing & Audio Reactive Visuals
   useEffect(() => {
     let animationFrame: number;
     let lastTime = performance.now();
 
     const animate = (time: number) => {
+      const dt = time - lastTime;
+      
       if (isPlaying && !isDraggingRef.current) {
-        const dt = time - lastTime;
         // 33 1/3 RPM = 33.333 / 60 * 360 = 200 degrees per second
         setRotation(prev => (prev + (200 * dt) / 1000) % 360);
       }
+      
+      const audioData = getAudioData?.();
+      
+      if (audioData) {
+         const { rms, low } = audioData;
+         
+         if (containerRef.current) {
+            // Pulse the box-shadow on bass hits
+            const shadowSpread = 15 + low * 40;
+            const shadowOpacity = 0.2 + low * 0.5;
+            containerRef.current.style.boxShadow = `0 0 ${shadowSpread}px rgba(${isRight ? '240,0,255' : '0,242,255'}, ${shadowOpacity})`;
+         }
+         
+         if (titleGlowRef.current) {
+            titleGlowRef.current.style.textShadow = `0 0 ${5 + rms * 20}px currentColor`;
+            titleGlowRef.current.style.opacity = (0.7 + rms * 0.3).toString();
+         }
+         
+         if (jogWheelDataRingRef.current) {
+            const dashArray = 2 * Math.PI * 80;
+            const fillAmount = Math.min(1, rms * 2.5);
+            jogWheelDataRingRef.current.style.strokeDasharray = `${dashArray * fillAmount} ${dashArray}`;
+            jogWheelDataRingRef.current.style.opacity = (0.3 + rms).toString();
+         }
+      }
+      
       lastTime = time;
       animationFrame = requestAnimationFrame(animate);
     };
 
     animationFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrame);
-  }, [isPlaying]);
+  }, [isPlaying, getAudioData, isRight]);
 
   const getAngle = (e: React.PointerEvent | PointerEvent) => {
     if (!jogWheelRef.current) return 0;
@@ -148,11 +186,58 @@ export function Deck({ deckId }: DeckProps) {
   const keySignature = track?.key || '--';
   const timeRemaining = track ? formatTime(duration - currentTime) : '00:00.00';
 
+  const renderJogWheel = () => (
+    <div className="flex flex-col gap-4 items-center">
+      <div 
+        ref={jogWheelRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
+      >
+        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
+          <circle cx="96" cy="96" r="90" fill="transparent" stroke={isRight ? "rgba(240, 0, 255, 0.1)" : "rgba(0, 242, 255, 0.1)"} strokeWidth="2" />
+          <circle cx="96" cy="96" r="90" fill="transparent" stroke={deckStroke} strokeWidth="2" strokeDasharray={2 * Math.PI * 90} strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))} className="transition-all duration-75 ease-linear" />
+          
+          {/* Cue Markers */}
+          {[0.1, 0.25, 0.4, 0.6].map((pos, i) => {
+            const angle = pos * Math.PI * 2; 
+            const x = 96 + 90 * Math.cos(angle);
+            const y = 96 + 90 * Math.sin(angle);
+            return (
+              <circle key={i} cx={x} cy={y} r="3" fill={["#ef4444", "#22c55e", "#3b82f6", "#eab308"][i]} />
+            );
+          })}
+
+          {/* Dynamic VU Data Ring */}
+          <circle ref={jogWheelDataRingRef} cx="96" cy="96" r="80" fill="transparent" stroke={deckStroke} strokeWidth="4" strokeDasharray="0 1000" className="opacity-30 blur-[1px] transition-opacity" />
+        </svg>
+        <div className={clsx("absolute inset-0 rounded-full border", `${deckBg}/10`)} style={{ transform: `rotate(${rotation}deg)` }}>
+          <div className={clsx("absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full", deckBg, isRight ? "shadow-[0_0_5px_#f000ff]" : "shadow-[0_0_5px_#00f2ff]")}></div>
+        </div>
+        <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
+          {isLoading ? (
+            <div className={clsx("w-10 h-10 border-2 border-t-transparent rounded-full animate-spin", deckBorder)}></div>
+          ) : (
+            <div className="w-10 h-10 border-2 border-slate-600 rounded-full"></div>
+          )}
+          {isLoading && (
+            <div className={clsx("absolute -bottom-10 text-[10px] animate-pulse font-bold tracking-widest uppercase", deckText)}>
+              Loading...
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div 
+      ref={containerRef}
       className={clsx(
-        "col-span-12 lg:col-span-5 bg-slate-900/60 rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300",
-        isDragOver ? "border-accent bg-accent/10" : "border-slate-800"
+        "bg-slate-900/40 backdrop-blur-xl rounded-xl border p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl",
+        isDragOver ? `${deckBorder} ${deckBg}/10` : "border-white/5"
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -162,39 +247,31 @@ export function Deck({ deckId }: DeckProps) {
         <div className="absolute inset-0 flex items-center justify-center opacity-30">
           <svg height="100%" preserveAspectRatio="none" width="100%">
             <path
-              d={
-                !isRight
-                  ? 'M0 40 Q 50 10, 100 40 T 200 40 T 300 40 T 400 40 T 500 40'
-                  : 'M0 40 Q 50 70, 100 40 T 200 40 T 300 40 T 400 40 T 500 40'
-              }
+              d={!isRight ? 'M0 40 Q 50 10, 100 40 T 200 40 T 300 40 T 400 40 T 500 40' : 'M0 40 Q 50 70, 100 40 T 200 40 T 300 40 T 400 40 T 500 40'}
               fill="transparent"
-              stroke="#00f2ff"
+              stroke={deckStroke}
               strokeWidth="2"
             ></path>
             <path
-              d={
-                !isRight
-                  ? 'M0 45 Q 60 20, 120 45 T 240 45 T 360 45 T 480 45 T 600 45'
-                  : 'M0 35 Q 60 60, 120 35 T 240 35 T 360 35 T 480 35 T 600 35'
-              }
+              d={!isRight ? 'M0 45 Q 60 20, 120 45 T 240 45 T 360 45 T 480 45 T 600 45' : 'M0 35 Q 60 60, 120 35 T 240 35 T 360 35 T 480 35 T 600 35'}
               fill="transparent"
               stroke="#f43f5e"
               strokeWidth="1"
             ></path>
           </svg>
         </div>
-        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-accent/80 z-10 shadow-[0_0_8px_#00f2ff]"></div>
+        <div className={clsx("absolute left-1/2 top-0 bottom-0 w-0.5 z-10", deckBg + "/80", isRight ? "shadow-[0_0_8px_#f000ff]" : "shadow-[0_0_8px_#00f2ff]")}></div>
         
         {/* Playhead Progress */}
         {duration > 0 && (
           <div 
-            className="absolute top-0 bottom-0 bg-accent/20 z-0" 
+            className={clsx("absolute top-0 bottom-0 z-0", deckBg + "/20")} 
             style={{ width: `${(currentTime / duration) * 100}%` }}
           />
         )}
 
         <div className="absolute inset-0 flex items-end gap-1 px-4 pb-1 pointer-events-none">
-          <div className="bg-accent/80 text-primary text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white">
+          <div className={clsx("text-primary text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white", deckBg + "/80")}>
             INTRO
           </div>
           <div className="bg-yellow-500/80 text-primary text-[8px] font-bold px-1 rounded cursor-pointer pointer-events-auto hover:bg-white">
@@ -205,178 +282,81 @@ export function Deck({ deckId }: DeckProps) {
           </div>
         </div>
         <div className="absolute top-1 left-4 flex gap-2 pointer-events-none">
-          <div className="w-4 h-4 rounded bg-red-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">
-            1
-          </div>
-          <div className="w-4 h-4 rounded bg-green-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">
-            2
-          </div>
-          <div className="w-4 h-4 rounded bg-blue-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">
-            3
-          </div>
+          <div className="w-4 h-4 rounded bg-red-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">1</div>
+          <div className="w-4 h-4 rounded bg-green-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">2</div>
+          <div className="w-4 h-4 rounded bg-blue-500 text-white text-[9px] flex items-center justify-center cursor-pointer pointer-events-auto">3</div>
         </div>
         <div className="absolute top-1 right-2 flex gap-1">
-          <button className="w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold text-accent hover:bg-accent hover:text-primary transition-colors">
-            V
-          </button>
-          <button className="w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold text-accent hover:bg-accent hover:text-primary transition-colors">
-            D
-          </button>
-          <button className="w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold text-accent hover:bg-accent hover:text-primary transition-colors">
-            B
-          </button>
-          <button className="w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold text-accent hover:bg-accent hover:text-primary transition-colors">
-            M
-          </button>
+          {['V', 'D', 'B', 'M'].map(btn => (
+            <button key={btn} className={clsx("w-5 h-5 bg-slate-900/80 border border-slate-700 rounded text-[9px] font-bold transition-colors", deckText, `hover:${deckBg}`, "hover:text-primary")}>
+              {btn}
+            </button>
+          ))}
         </div>
       </div>
       <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-accent font-bold text-lg">{title}</h3>
+          <h3 ref={titleGlowRef} className={clsx("font-[800] tracking-tight neon-text-glow text-[length:var(--step-1)]", deckText)}>{title}</h3>
           <div className="flex items-center gap-2">
-            <p className="text-slate-500 text-xs">
-              {artist} • {bpm} BPM • {keySignature}
+            <p className="text-slate-500 text-[length:var(--step-0)]">
+              {artist} • <span className="font-mono font-bold text-slate-300 tabular-nums">{bpm}</span> BPM • <span className="font-mono font-bold text-slate-300">{keySignature}</span>
             </p>
             <button
               onClick={handleTap}
-              className="px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold text-slate-400 hover:text-accent hover:border-accent transition-colors active:bg-accent/20"
+              className={clsx("px-2 py-0.5 bg-slate-800 border border-slate-700 rounded text-[9px] font-bold transition-colors active:bg-white/10 text-slate-400", `hover:${deckText}`, `hover:${deckBorder}`)}
             >
               TAP
             </button>
           </div>
         </div>
         <div className="text-right">
-          <p className="text-2xl font-mono font-bold text-slate-200">{timeRemaining}</p>
+          <p className="font-mono font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]">{timeRemaining}</p>
           <p className="text-slate-500 text-[10px] uppercase tracking-widest">Remaining</p>
         </div>
       </div>
-      <div className="flex justify-between items-center py-4">
-        {!isRight && (
-          <div className="flex flex-col gap-4 items-center">
-            <div 
-              ref={jogWheelRef}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
-            >
-              {/* Progress Ring */}
-              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
-                <circle
-                  cx="96"
-                  cy="96"
-                  r="90"
-                  fill="transparent"
-                  stroke="rgba(0, 242, 255, 0.1)"
-                  strokeWidth="2"
-                />
-                <circle
-                  cx="96"
-                  cy="96"
-                  r="90"
-                  fill="transparent"
-                  stroke="#00f2ff"
-                  strokeWidth="2"
-                  strokeDasharray={2 * Math.PI * 90}
-                  strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))}
-                  className="transition-all duration-75 ease-linear"
-                />
-              </svg>
-              <div 
-                className="absolute inset-0 rounded-full border border-accent/10"
-                style={{ transform: `rotate(${rotation}deg)` }}
-              >
-                {/* Marker to show rotation */}
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-accent rounded-full shadow-[0_0_5px_#00f2ff]"></div>
-              </div>
-              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
-                {isLoading ? (
-                  <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <div className="w-10 h-10 border-2 border-slate-600 rounded-full"></div>
-                )}
-                {isLoading && (
-                  <div className="absolute -bottom-10 text-[10px] text-accent animate-pulse font-bold tracking-widest uppercase">
-                    Loading...
-                  </div>
-                )}
-              </div>
-            </div>
+      
+      <div className="flex flex-col lg:flex-row justify-between items-center gap-6 py-4">
+        {!isRight && renderJogWheel()}
+        
+        {/* Transport & Performance Pads */}
+        <div className="flex flex-col gap-4 flex-1 w-full max-w-sm">
+          {/* Transport */}
+          <div className="flex justify-center gap-4">
+             <button className={clsx("w-20 h-12 rounded-lg bg-slate-800 border-b-4 shadow-inner flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none", deckBorder, deckText)}>
+               <span className="text-xs">CUE</span>
+             </button>
+             <button
+               onClick={togglePlay}
+               disabled={!track}
+               className={clsx(
+                 'w-24 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none disabled:opacity-50 disabled:cursor-not-allowed shadow-inner border-b-4',
+                 isPlaying
+                   ? `${deckBg} text-primary neon-glow ${deckBorder}`
+                   : `bg-slate-800 border-slate-700 text-slate-400 hover:${deckBorder} hover:${deckText}`
+               )}
+             >
+               <Play className={clsx('w-6 h-6', isPlaying ? 'fill-primary' : 'fill-slate-400')} />
+             </button>
           </div>
-        )}
-        <div className="flex flex-col gap-3">
-          <button className="w-20 h-20 rounded-full bg-slate-800 border-2 border-accent text-accent flex flex-col items-center justify-center font-bold neon-glow hover:bg-slate-700 transition-all">
-            <span className="text-xs">CUE</span>
-          </button>
-          <button
-            onClick={togglePlay}
-            disabled={!track}
-            className={clsx(
-              'w-20 h-20 rounded-full flex flex-col items-center justify-center font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed',
-              isPlaying
-                ? 'bg-accent text-primary neon-glow hover:scale-105'
-                : 'bg-slate-800 border-2 border-slate-600 text-slate-400 hover:border-accent hover:text-accent'
-            )}
-          >
-            <Play className={clsx('w-8 h-8', isPlaying ? 'fill-primary' : 'fill-slate-400')} />
-            <span className="text-[10px]">PLAY</span>
-          </button>
+          
+          {/* Performance Pads 2x4 Grid */}
+          <div className="grid grid-cols-4 gap-2">
+            {['HOT CUE 1', 'HOT CUE 2', 'HOT CUE 3', 'HOT CUE 4', 'VOCAL', 'MELODY', 'BASS', 'DRUMPS'].map((label, i) => (
+              <button 
+                key={i} 
+                className={clsx(
+                  "h-12 rounded-md bg-slate-800 border-b-4 border-slate-900 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none", 
+                  isRight ? "hover:bg-deck-b/20 border-b-deck-b/20" : "hover:bg-deck-a/20 border-b-deck-a/20"
+                )}
+                onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(5); }}
+              >
+                 <span className={clsx("text-[8px] font-bold", deckText)}>{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        {isRight && (
-          <div className="flex flex-col gap-4 items-center">
-            <div 
-              ref={jogWheelRef}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              className="jog-wheel w-48 h-48 rounded-full border-4 border-slate-800 flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none"
-            >
-              {/* Progress Ring */}
-              <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none">
-                <circle
-                  cx="96"
-                  cy="96"
-                  r="90"
-                  fill="transparent"
-                  stroke="rgba(0, 242, 255, 0.1)"
-                  strokeWidth="2"
-                />
-                <circle
-                  cx="96"
-                  cy="96"
-                  r="90"
-                  fill="transparent"
-                  stroke="#00f2ff"
-                  strokeWidth="2"
-                  strokeDasharray={2 * Math.PI * 90}
-                  strokeDashoffset={2 * Math.PI * 90 * (1 - (duration > 0 ? currentTime / duration : 0))}
-                  className="transition-all duration-75 ease-linear"
-                />
-              </svg>
-              <div 
-                className="absolute inset-0 rounded-full border border-accent/10"
-                style={{ transform: `rotate(${rotation}deg)` }}
-              >
-                {/* Marker to show rotation */}
-                <div className="absolute top-2 left-1/2 -translate-x-1/2 w-2 h-2 bg-accent rounded-full shadow-[0_0_5px_#00f2ff]"></div>
-              </div>
-              <div className="w-12 h-12 bg-primary rounded-full border border-slate-700 flex items-center justify-center z-10">
-                {isLoading ? (
-                  <div className="w-10 h-10 border-2 border-accent border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <div className="w-10 h-10 border-2 border-slate-600 rounded-full"></div>
-                )}
-                {isLoading && (
-                  <div className="absolute -bottom-10 text-[10px] text-accent animate-pulse font-bold tracking-widest uppercase">
-                    Loading...
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
+
+        {isRight && renderJogWheel()}
       </div>
     </div>
   );

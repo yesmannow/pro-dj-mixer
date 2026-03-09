@@ -1,4 +1,5 @@
 import { clsx } from 'clsx';
+import { useState, useRef } from 'react';
 
 interface DeckFXProps {
   side: 'left' | 'right';
@@ -6,6 +7,35 @@ interface DeckFXProps {
 
 export function DeckFX({ side }: DeckFXProps) {
   const isRight = side === 'right';
+
+  const [xyPos, setXyPos] = useState({ x: 0.5, y: 0.5 });
+  const xyRef = useRef<HTMLDivElement>(null);
+  
+  const [knobVal, setKnobVal] = useState(0); // 0 to 1
+  const knobRef = useRef<HTMLDivElement>(null);
+
+  const handleXyPointerChange = (e: React.PointerEvent) => {
+    if (e.buttons !== 1 || !xyRef.current) return;
+    const rect = xyRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    setXyPos({ x, y });
+  };
+
+  const handleKnobPointerChange = (e: React.PointerEvent) => {
+    if (e.buttons !== 1 || !knobRef.current) return;
+    const rect = knobRef.current.getBoundingClientRect();
+    const centerY = rect.top + rect.height / 2;
+    // Map vertical throw (e.g. 100px) from 0 to 1
+    const val = Math.max(0, Math.min(1, knobVal + (centerY - e.clientY) / 200));
+    
+    // Haptic feedback at boundaries
+    if ((val === 0 && knobVal > 0) || (val === 1 && knobVal < 1)) {
+       if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10);
+    }
+    
+    setKnobVal(val);
+  };
 
   return (
     <div
@@ -23,8 +53,13 @@ export function DeckFX({ side }: DeckFXProps) {
         >
           Filter / Reverb XY
         </div>
-        <div className="w-32 h-32 bg-black/60 rounded-lg border border-slate-700 relative overflow-hidden cursor-crosshair">
-          <div className="absolute inset-0 opacity-10">
+        <div 
+          ref={xyRef}
+          onPointerDown={handleXyPointerChange}
+          onPointerMove={handleXyPointerChange}
+          className="w-32 h-32 bg-black/60 rounded-lg border border-slate-700 relative overflow-hidden cursor-crosshair touch-none select-none group"
+        >
+          <div className="absolute inset-0 opacity-10 group-active:opacity-30 transition-opacity">
             <div
               className="absolute inset-0"
               style={{
@@ -34,14 +69,23 @@ export function DeckFX({ side }: DeckFXProps) {
             ></div>
           </div>
           <div
-            className={clsx(
-              'absolute w-3 h-3 bg-accent rounded-full neon-glow -translate-x-1/2 -translate-y-1/2 shadow-[0_0_10px_#00f2ff]',
-              isRight ? 'bottom-1/3 right-1/4' : 'top-1/2 left-1/4'
-            )}
+            className="absolute w-4 h-4 rounded-full border border-white -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-transform shadow-[0_0_15px_rgba(0,242,255,0.8)]"
+            style={{ 
+              left: `${xyPos.x * 100}%`, 
+              top: `${xyPos.y * 100}%`,
+              backgroundColor: isRight ? '#f000ff' : '#00f2ff',
+            }}
           ></div>
           <div
             className={clsx(
-              'absolute text-[8px] text-slate-600',
+              'absolute w-2 h-2 rounded-full pointer-events-none shadow-[0_0_10px_currentColor] mix-blend-screen scale-150',
+              isRight ? 'bg-[#f000ff]' : 'bg-[#00f2ff]'
+            )}
+            style={{ left: `${xyPos.x * 100}%`, top: `${xyPos.y * 100}%`, transform: 'translate(-50%, -50%)' }}
+          ></div>
+          <div
+            className={clsx(
+              'absolute text-[8px] text-slate-600 select-none pointer-events-none',
               isRight ? 'bottom-1 right-2' : 'bottom-1 left-2'
             )}
           >
@@ -111,14 +155,26 @@ export function DeckFX({ side }: DeckFXProps) {
         <div className="text-[9px] uppercase tracking-wider text-slate-500 font-bold">
           Build-up
         </div>
-        <div className="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 relative flex items-center justify-center cursor-pointer hover:border-accent transition-colors">
-          <div className="absolute inset-1 rounded-full border border-dashed border-accent/20"></div>
+        <div 
+          ref={knobRef}
+          onPointerDown={handleKnobPointerChange}
+          onPointerMove={handleKnobPointerChange}
+          className="w-16 h-16 rounded-full bg-slate-900 border-2 border-slate-700 relative flex items-center justify-center cursor-pointer hover:border-accent transition-colors touch-none select-none group"
+        >
+          <div className="absolute inset-1 rounded-full border border-dashed border-slate-600 group-hover:border-accent/40 group-active:border-accent transition-colors"></div>
+          {/* Knob Rotation Logic: 0 -> -135deg, 1 -> +135deg */}
           <div
-            className={clsx(
-              'w-1 h-6 bg-accent rounded-full shadow-[0_0_15px_#00f2ff] origin-bottom mb-4',
-              isRight ? 'rotate-12' : '-rotate-45'
-            )}
-          ></div>
+            className="w-full h-full absolute inset-0 flex items-start justify-center transition-transform"
+            style={{ transform: `rotate(${knobVal * 270 - 135}deg)` }}
+          >
+            <div
+              className={clsx(
+                'w-1.5 h-4 mt-2 rounded-full shadow-[0_0_10px_rgba(0,242,255,0.6)]',
+                isRight ? 'bg-[#f000ff]' : 'bg-[#00f2ff]',
+                knobVal > 0.05 ? 'shadow-[0_0_20px_currentColor]' : ''
+              )}
+            ></div>
+          </div>
         </div>
       </div>
     </div>

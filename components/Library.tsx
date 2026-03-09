@@ -1,17 +1,37 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Layers, ListChecks, ListPlus, UploadCloud, Loader2 } from 'lucide-react';
+import { Search, Plus, Layers, ListChecks, ListPlus, UploadCloud, Loader2, Zap } from 'lucide-react';
 import { clsx } from 'clsx';
-import { Sampler } from './Sampler';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useUIStore } from '@/store/uiStore';
+import { useDeckStore } from '@/store/deckStore';
+import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
 
 export function Library() {
-  const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'history' | 'samples'>('tracks');
+  const [activeTab, setActiveTab] = useState<'tracks' | 'playlists' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
+  const [isSmartMatchEnabled, setIsSmartMatchEnabled] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const { tracks, processingTracks, loadTracks, addTrack, seedLibrary } = useLibraryStore();
+  const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
+  
+  const deckA = useDeckStore(state => state.deckA);
+  const deckB = useDeckStore(state => state.deckB);
+
+  const masterDeck = deckA.isPlaying ? deckA : (deckB.isPlaying ? deckB : deckA);
+
+  const displayTracks = tracks.filter(t => {
+    if (!isSmartMatchEnabled) return true;
+    if (!masterDeck.track) return true; // Need a track to match against
+    return isSmartMatch(
+      masterDeck.track.key, 
+      Number(masterDeck.track.bpm) || 120, 
+      t.key, 
+      Number(t.bpm) || 120
+    );
+  });
 
   useEffect(() => {
     loadTracks().then(() => {
@@ -61,7 +81,7 @@ export function Library() {
 
   return (
     <div 
-      className="flex-1 min-h-[300px] bg-slate-900/60 rounded-xl border border-slate-800 flex flex-col overflow-hidden relative transition-colors duration-300"
+      className="flex-1 min-h-[300px] bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -95,53 +115,22 @@ export function Library() {
           >
             HISTORY
           </button>
-          <button 
-            onClick={() => setActiveTab('samples')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors", activeTab === 'samples' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            SAMPLES
-          </button>
+
           
           <div className="w-px h-6 bg-slate-800 mx-2"></div>
           
-          <input 
-            type="file" 
-            multiple 
-            accept=".mp3,.wav,.flac,.m4a,audio/*" 
-            className="hidden" 
-            ref={fileInputRef}
-            onChange={handleFileInput}
-          />
+          {/* Hidden legacy input removed: utilizing the Universal Importer instead */}
           <button 
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => setAddMusicModalOpen(true)}
             className="flex items-center gap-2 px-3 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs font-bold text-slate-300 transition-colors"
           >
             <UploadCloud className="w-3.5 h-3.5 text-accent" />
-            UPLOAD
+            IMPORT
           </button>
         </div>
-        {activeTab !== 'samples' && (
-          <div className="flex items-center">
-            <select className="bg-slate-900 border-slate-800 rounded-lg py-1.5 text-xs focus:ring-accent focus:border-accent text-slate-400 mr-2 cursor-pointer">
-              <option>Local</option>
-              <option>SoundCloud</option>
-              <option>Tidal</option>
-            </select>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-              <input
-                className="bg-slate-900 border-slate-800 rounded-lg pl-10 py-1.5 text-sm w-64 focus:ring-accent focus:border-accent text-slate-200"
-                placeholder="Search track, artist, BPM..."
-                type="text"
-              />
-            </div>
-          </div>
-        )}
+
       </div>
       <div className="overflow-y-auto flex-1">
-        {activeTab === 'samples' ? (
-          <Sampler />
-        ) : (
           <table className="w-full text-left">
             <thead className="bg-slate-900/80 sticky top-0 border-b border-slate-800 z-20">
               <tr>
@@ -188,14 +177,16 @@ export function Library() {
               ))}
 
               {/* Loaded Tracks */}
-              {tracks.map((track, index) => (
+              {displayTracks.map((track, index) => {
+                const camelotStyle = getCamelotStyles(track.key);
+                return (
                 <tr
                   key={track.id}
                   draggable
                   onDragStart={(e) => handleTrackDragStart(e, track.id!)}
                   className="group cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/40"
                 >
-                  <td className="px-6 py-4 text-sm text-slate-500">
+                  <td className="px-6 py-4 text-sm text-slate-500 font-mono">
                     {index + 1}
                   </td>
                   <td className="px-6 py-4 text-sm flex items-center gap-3">
@@ -205,19 +196,26 @@ export function Library() {
                         <div className="w-3 h-3 bg-accent rounded-full z-20"></div>
                       </div>
                     </div>
-                    <span className="font-medium text-slate-200">
+                    <span className="font-medium text-slate-200 truncate max-w-[200px]" title={track.title}>
                       {track.title}
                     </span>
                     {track.hasVocal && (
-                      <span className="ml-2 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[9px] font-bold rounded border border-blue-500/30">
+                      <span className="ml-2 px-1.5 py-0.5 bg-blue-500/20 text-blue-400 text-[9px] font-bold rounded border border-blue-500/30 flex-shrink-0">
                         VOCAL
                       </span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-400">{track.artist}</td>
-                  <td className="px-6 py-4 text-sm text-accent font-mono">{track.bpm}</td>
-                  <td className="px-6 py-4 text-sm text-slate-400">{track.key}</td>
-                  <td className="px-6 py-4 text-sm text-slate-500">{track.duration}</td>
+                  <td className="px-6 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
+                  <td className="px-6 py-4 text-sm text-slate-300 font-mono tabular-nums font-medium">{track.bpm}</td>
+                  <td className="px-6 py-4 text-sm">
+                    <span 
+                      className="px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center"
+                      style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
+                    >
+                      {track.key || '--'}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
                   <td className="px-6 py-4 text-right relative group/menu">
                     <button className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent hover:border-accent transition-all duration-200">
                       <Plus className="w-4 h-4" />
@@ -244,7 +242,8 @@ export function Library() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {tracks.length === 0 && processingTracks.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
@@ -257,7 +256,6 @@ export function Library() {
               )}
             </tbody>
           </table>
-        )}
       </div>
     </div>
   );

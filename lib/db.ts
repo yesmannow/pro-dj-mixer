@@ -11,6 +11,7 @@ export interface Track {
   hasVocal: boolean;
   fileBlob?: Blob;
   artworkUrl?: string;
+  overviewWaveform?: number[];
   createdAt: number;
 }
 

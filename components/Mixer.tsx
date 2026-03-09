@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { useMixerStore } from '@/store/mixerStore';
 
 function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
@@ -122,7 +122,7 @@ export function Mixer() {
   const crossfaderLeft = `${((crossfader + 1) / 2) * 100}%`;
 
   return (
-    <div className="col-span-12 lg:col-span-2 bg-slate-900/60 rounded-xl border border-slate-800 p-4 flex flex-col items-center gap-6 transition-colors duration-300">
+    <div className="bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
       <div className="grid grid-cols-2 gap-8 w-full">
         <div className="flex flex-col items-center gap-4">
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />

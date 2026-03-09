@@ -14,6 +14,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const eqChainRef = useRef<ReturnType<AudioEngine['createEQChain']> | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const dataArrayRef = useRef<Uint8Array | null>(null);
   
   const pauseTimeRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);
@@ -28,9 +30,13 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     if (!gainRef.current) {
       gainRef.current = engine.context.createGain();
       eqChainRef.current = engine.createEQChain();
+      analyserRef.current = engine.context.createAnalyser();
+      analyserRef.current.fftSize = 256;
+      dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
       
-      // Connect EQ output to Gain, Gain to destination
-      eqChainRef.current.output.connect(gainRef.current);
+      // Connect EQ output to Analyser, Analyser to Gain, Gain to destination
+      eqChainRef.current.output.connect(analyserRef.current);
+      analyserRef.current.connect(gainRef.current);
       gainRef.current.connect(engine.context.destination);
     }
 
@@ -77,6 +83,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       
       sourceRef.current = engine.context.createBufferSource();
       sourceRef.current.buffer = deckState.buffer;
+      (sourceRef.current as any).preservesPitch = true;
       
       // Connect source to EQ input
       sourceRef.current.connect(eqChainRef.current.input);
@@ -163,6 +170,30 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     }
   }, [deckState.isPlaying]);
 
+  const getAudioData = useCallback(() => {
+    if (!analyserRef.current || !dataArrayRef.current) return { rms: 0, low: 0, mid: 0, high: 0 };
+    analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
+    
+    let sum = 0, lowSum = 0, midSum = 0, highSum = 0;
+    const len = dataArrayRef.current.length;
+    
+    for (let i = 0; i < len; i++) {
+        const val = dataArrayRef.current[i] / 255.0; // Normalize 0-1
+        sum += val * val;
+        
+        if (i < len * 0.1) lowSum += val;
+        else if (i < len * 0.5) midSum += val;
+        else highSum += val;
+    }
+    
+    return { 
+      rms: Math.sqrt(sum / len), 
+      low: lowSum / (len * 0.1), 
+      mid: midSum / (len * 0.4), 
+      high: highSum / (len * 0.5) 
+    };
+  }, []);
+
   return {
     currentTime,
     duration: deckState.duration,
@@ -172,6 +203,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     togglePlay: () => togglePlay(deckId),
     setVolume: (v: number) => setVolume(deckId, v),
     scrubTrack,
-    endScrub
+    endScrub,
+    getAudioData
   };
 }
