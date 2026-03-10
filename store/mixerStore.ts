@@ -7,10 +7,12 @@ interface MixerState {
   eqA: { high: number; mid: number; low: number }; // -1 to 1
   eqB: { high: number; mid: number; low: number }; // -1 to 1
   crossfaderCurve: 'blend' | 'cut';
+  vaultAmbience: number; // 0..1
   setCrossfader: (value: number) => void;
   setVolume: (deckId: 'A' | 'B', value: number) => void;
   setCrossfaderCurve: (curve: 'blend' | 'cut') => void;
   setEQ: (deckId: 'A' | 'B', band: 'high' | 'mid' | 'low', value: number) => void;
+  setVaultAmbience: (value: number) => void;
 }
 
 export const useMixerStore = create<MixerState>((set) => ({
@@ -20,6 +22,7 @@ export const useMixerStore = create<MixerState>((set) => ({
   eqA: { high: 0, mid: 0, low: 0 },
   eqB: { high: 0, mid: 0, low: 0 },
   crossfaderCurve: 'blend',
+  vaultAmbience: 0.2,
   setCrossfader: (value) => set({ crossfader: value }),
   setVolume: (deckId, value) => {
     const clamped = Math.max(0, Math.min(1, value));
@@ -31,5 +34,6 @@ export const useMixerStore = create<MixerState>((set) => ({
       ...state[deckId === 'A' ? 'eqA' : 'eqB'],
       [band]: value
     }
-  }))
+  })),
+  setVaultAmbience: (value) => set({ vaultAmbience: Math.max(0, Math.min(1, value)) })
 }));

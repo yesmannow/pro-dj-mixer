@@ -4,6 +4,7 @@ import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import Spline from '@splinetool/react-spline';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
@@ -14,6 +15,7 @@ import { PerformancePads } from '@/components/deck/PerformancePads';
 import { PitchFader } from '@/components/deck/PitchFader';
 import { FXRack } from '@/components/deck/FXRack';
 import { AudioEngine } from '@/lib/audioEngine';
+import { MagneticButton } from '@/components/ui/MagneticButton';
 import type { Track } from '@/lib/db';
 
 interface DeckProps {
@@ -32,10 +34,11 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const setPitch = useDeckStore((state) => state.setPitch);
   const toggleSync = useDeckStore((state) => state.toggleSync);
   const { pitchPercent, sync } = useDeckStore(
-    useShallow((state) => {
+    (state) => {
       const deck = deckId === 'A' ? state.deckA : state.deckB;
       return { pitchPercent: deck.pitchPercent, sync: deck.sync };
-    })
+    },
+    useShallow
   );
   const { tracks } = useLibraryStore();
   const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
@@ -107,6 +110,12 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const jogWheelRef = useRef<HTMLButtonElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
+  const lastMoveTimeRef = useRef<number>(0);
+  const lastDeltaRef = useRef<number>(0);
+  const splineAppRef = useRef<any>(null);
+  const platterNodeRef = useRef<any>(null);
+  const currentTimeRef = useRef(currentTime);
+  const scratchRef = useRef(scratchOffset);
 
   // Deck specific identity colors and styling hooks
   const deckText = isRight ? 'text-deck-b' : 'text-deck-a';
@@ -194,6 +203,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const handlePointerDown = (e: React.PointerEvent) => {
     isDraggingRef.current = true;
     lastAngleRef.current = getAngle(e);
+    lastMoveTimeRef.current = performance.now();
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
@@ -208,6 +218,9 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
 
     setScratchOffset(prev => prev + deltaAngle);
     lastAngleRef.current = currentAngle;
+    const now = performance.now();
+    lastDeltaRef.current = deltaAngle / Math.max(1, now - lastMoveTimeRef.current);
+    lastMoveTimeRef.current = now;
 
     // Time delta: 33.333 RPM = 1.8 seconds per revolution.
     // So deltaTime = deltaAngle / 360 * 1.8
@@ -223,7 +236,18 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const handlePointerUp = (e: React.PointerEvent) => {
     isDraggingRef.current = false;
     e.currentTarget.releasePointerCapture(e.pointerId);
-    endScrub();
+    const velocity = lastDeltaRef.current;
+    const start = performance.now();
+    const durationMs = 200;
+    const animateBrake = () => {
+      const now = performance.now();
+      const t = Math.min(1, (now - start) / durationMs);
+      const delta = velocity * (1 - t) * 5;
+      setScratchOffset((prev) => prev + delta);
+      if (t < 1) requestAnimationFrame(animateBrake);
+      else endScrub();
+    };
+    requestAnimationFrame(animateBrake);
   };
 
   const handleTap = useCallback(() => {
@@ -305,9 +329,31 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const handleNudgeDownStart = () => setIsNudgingDown(true);
   const handleNudgeDownEnd = () => setIsNudgingDown(false);
 
-  const baseVisualRotation = (currentTime / 1.8) * 360;
-  const scratchDeltaOffset = scratchOffset;
-  const finalRotation = ((baseVisualRotation + scratchDeltaOffset) % 360 + 360) % 360;
+  useEffect(() => {
+    if (!platterNodeRef.current) return;
+    const radians = ((currentTime / 1.8) * 360 + scratchOffset) * (Math.PI / 180);
+    platterNodeRef.current.rotation.y = radians;
+  }, [currentTime, scratchOffset]);
+
+  useEffect(() => {
+    currentTimeRef.current = currentTime;
+    scratchRef.current = scratchOffset;
+  }, [currentTime, scratchOffset]);
+
+  useEffect(() => {
+    let raf: number;
+    const tick = () => {
+      const node = platterNodeRef.current;
+      if (node) {
+        const baseRadians = -((currentTimeRef.current + scratchRef.current) / 1.8) * (Math.PI * 2);
+        const jitter = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.002 : 0;
+        node.rotation.y = baseRadians + jitter;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [isPlaying]);
 
   let temporaryPitch = 0;
   if (isNudgingUp) {
@@ -322,60 +368,62 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
     ? `${deckBg} text-slate-900 shadow-[0_0_12px_rgba(212,175,55,0.45)] ${deckBorder}`
     : `bg-studio-slate border-studio-gold/30 text-slate-300 hover:${deckBorder} hover:${deckText}`;
 
+  const handleSplineLoad = (spline: any) => {
+    splineAppRef.current = spline;
+    platterNodeRef.current =
+      spline?.findObjectByName?.('Platter') ??
+      spline?.findObjectByName?.('Disk') ??
+      spline?.children?.[0] ??
+      null;
+    if (platterNodeRef.current) {
+      const radians = ((currentTime / 1.8) * 360 + scratchOffset) * (Math.PI / 180);
+      platterNodeRef.current.rotation.y = radians;
+    }
+  };
+
   const renderJogWheel = () => (
     <div className="jogwheel-wrapper flex flex-col gap-4 items-center">
-      <button
-        type="button"
-        ref={jogWheelRef}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
-        className="w-64 h-64 rounded-full border-4 border-studio-black flex items-center justify-center relative cursor-pointer active:scale-95 transition-transform touch-none vinyl-record"
-        style={{ transform: `rotate(${finalRotation}deg)` }}
-      >
-        <div className="absolute inset-6 rounded-full border border-slate-800/60">
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-10 h-1.5 bg-white rounded-sm shadow-[0_0_6px_rgba(255,255,255,0.4)]"></div>
-        </div>
-
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="relative w-24 h-24 rounded-full border-4 border-studio-black bg-studio-gold overflow-hidden z-10 flex items-center justify-center">
-            {track?.artworkUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" draggable={false} />
-            ) : (
-              <span className="text-xs font-black text-studio-black text-center px-3 leading-tight" style={{ fontFamily: 'var(--font-heading)' }}>
-                EXCLUSIVE DUBPLATE
-              </span>
+      <div className="relative w-64 h-64">
+        <Spline
+          scene="https://prod.spline.design/NuXDSBxPTsCkXbkq/scene.splinecode"
+          onLoad={handleSplineLoad}
+          className="absolute inset-0"
+        />
+        <svg className="absolute inset-0 pointer-events-none" viewBox="0 0 256 256">
+          <circle cx="128" cy="128" r="120" fill="transparent" stroke={isRight ? 'rgba(225, 29, 72, 0.25)' : 'rgba(212, 175, 55, 0.25)'} strokeWidth="3" />
+          <circle
+            cx="128"
+            cy="128"
+            r="110"
+            fill="transparent"
+            stroke={deckStroke}
+            strokeWidth="4"
+            strokeDasharray="0 1000"
+            ref={jogWheelDataRingRef}
+            className="opacity-30 transition-opacity"
+          />
+        </svg>
+        <div
+          ref={jogWheelRef}
+          className="absolute inset-0 rounded-full border-4 border-studio-gold/40 shadow-[0_0_35px_rgba(212,175,55,0.35)] overflow-hidden cursor-pointer touch-none"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div className="absolute inset-4 rounded-full border border-white/5" />
+          <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+            <div className="w-6 h-1.5 rounded-sm bg-white shadow-[0_0_10px_rgba(255,255,255,0.45)]" />
+          </div>
+          <div className="absolute inset-0 pointer-events-none">
+            {isLoading && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className={clsx('w-12 h-12 border-2 border-t-transparent rounded-full animate-spin', deckBorder)}></div>
+              </div>
             )}
           </div>
-          <div className="absolute w-2 h-2 bg-studio-black rounded-full z-20"></div>
         </div>
-
-        <svg className="absolute inset-0 w-full h-full -rotate-90 pointer-events-none" viewBox="0 0 256 256">
-          <circle cx="128" cy="128" r="120" fill="transparent" stroke={isRight ? "rgba(225, 29, 72, 0.25)" : "rgba(212, 175, 55, 0.25)"} strokeWidth="3" />
-          <circle cx="128" cy="128" r="120" fill="transparent" stroke={deckStroke} strokeWidth="3" strokeDasharray={2 * Math.PI * 120} strokeDashoffset={2 * Math.PI * 120 * (1 - (duration > 0 ? currentTime / duration : 0))} className="transition-all duration-75 ease-linear" />
-
-          {[0.1, 0.25, 0.4, 0.6].map((pos, i) => {
-            const angle = pos * Math.PI * 2;
-            const x = (128 + 120 * Math.cos(angle)).toFixed(6);
-            const y = (128 + 120 * Math.sin(angle)).toFixed(6);
-            return (
-              <circle key={`cue-marker-${pos}`} cx={x} cy={y} r="3" fill={["#facc15", "#f97316", "#ef4444", "#22c55e"][i]} />
-            );
-          })}
-
-          <circle ref={jogWheelDataRingRef} cx="128" cy="128" r="110" fill="transparent" stroke={deckStroke} strokeWidth="4" strokeDasharray="0 1000" className="opacity-30 blur-[1px] transition-opacity" />
-        </svg>
-
-        <div className="absolute inset-0 pointer-events-none">
-          {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className={clsx("w-12 h-12 border-2 border-t-transparent rounded-full animate-spin", deckBorder)}></div>
-            </div>
-          )}
-        </div>
-      </button>
+      </div>
     </div>
   );
 
@@ -443,10 +491,14 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
         <div className="flex flex-col gap-4 flex-1 w-full max-w-sm">
           {/* Transport */}
           <div className="flex flex-wrap items-center justify-center gap-4 w-full min-w-[300px]">
-             <button className="shrink-0 w-20 h-12 rounded-lg bg-white border-4 border-black shadow-[0_6px_0_#111] flex flex-col items-center justify-center font-black text-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_#111] touch-none">
+             <MagneticButton
+               strength={60}
+               className="shrink-0 w-20 h-12 rounded-lg bg-[#050505] border-2 border-studio-gold text-studio-gold shadow-[0_6px_0_rgba(212,175,55,0.45)] flex flex-col items-center justify-center font-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_rgba(212,175,55,0.45)] touch-none"
+             >
                <span className="text-xs leading-none">CUE</span>
-             </button>
-             <button
+             </MagneticButton>
+             <MagneticButton
+               strength={60}
                onClick={() => toggleSync(deckId)}
                disabled={!track}
                className={clsx(
@@ -455,8 +507,9 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
                )}
              >
                <span className="text-xs">SYNC</span>
-             </button>
-             <button
+             </MagneticButton>
+             <MagneticButton
+               strength={60}
                onClick={togglePlay}
                disabled={!track}
                className={clsx(
@@ -465,7 +518,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
                )}
              >
                <Play className={clsx('w-6 h-6', isPlaying ? 'fill-slate-900' : 'fill-slate-200')} />
-             </button>
+             </MagneticButton>
           </div>
 
           {/* Performance Pads 2x4 Grid */}

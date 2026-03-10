@@ -18,7 +18,6 @@ import { useShallow } from 'zustand/react/shallow';
 export function Library() {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
-  const [isSmartMatchEnabled, setIsSmartMatchEnabled] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
@@ -37,6 +36,7 @@ export function Library() {
     vaultTotalCount,
   } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
+  const { isSmartMatchEnabled, toggleSmartMatch } = useUIStore();
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
     crates,
@@ -295,6 +295,17 @@ export function Library() {
             ADD MUSIC
           </button>
           <button
+            onClick={toggleSmartMatch}
+            className={clsx(
+              "px-4 py-1.5 rounded-full border text-[11px] font-bold transition-all backdrop-blur-md",
+              isSmartMatchEnabled
+                ? "bg-studio-gold text-studio-black border-studio-gold shadow-[0_0_12px_#D4AF37]"
+                : "bg-white/5 text-slate-200 border-white/15 hover:border-studio-gold/60 hover:text-studio-gold"
+            )}
+          >
+            SMART MATCH
+          </button>
+          <button
             onClick={() => {
               setHoldVaultHud(true);
               void loadPikoVault(PIKO_VAULT_TRACKS);
@@ -359,12 +370,12 @@ export function Library() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => { if (item.track) useDeckStore.getState().loadTrack('A', item.track); toast.success('Loaded to Deck A'); }}
-                          className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
-                        >
-                          DECK A
+                        <div className={clsx("flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity", isSmartMatchEnabled && masterDeck.track && !isMatch ? "opacity-0 pointer-events-none" : "")}>
+                          <button
+                            onClick={() => { if (item.track) useDeckStore.getState().loadTrack('A', item.track); toast.success('Loaded to Deck A'); }}
+                            className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
+                          >
+                            DECK A
                         </button>
                         <button
                           onClick={() => { if (item.track) useDeckStore.getState().loadTrack('B', item.track); toast.success('Loaded to Deck B'); }}
@@ -524,12 +535,20 @@ export function Library() {
               {/* Loaded Tracks */}
               {displayTracks.map((track, index) => {
                 const camelotStyle = getCamelotStyles(track.key);
+                const isMatch = isSmartMatchEnabled && masterDeck.track
+                  ? isSmartMatch(masterDeck.track.key, Number(masterDeck.track.bpm) || 120, track.key, Number(track.bpm) || 120)
+                  : false;
+                const isBlocked = isSmartMatchEnabled && masterDeck.track && !isMatch;
                 return (
                 <tr
                   key={track.id}
                   draggable
                   onDragStart={(e) => handleTrackDragStart(e, track)}
-                  className="group cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/40"
+                  className={clsx(
+                    "group cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/40",
+                    isMatch && "border border-studio-gold shadow-[0_0_10px_#D4AF37] animate-pulse",
+                    isBlocked && "opacity-20 pointer-events-none"
+                  )}
                 >
                   <td className="px-4 py-4 text-sm text-slate-500 font-mono">
                     {index + 1}
@@ -558,10 +577,13 @@ export function Library() {
                     )}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
-                  <td className="px-4 py-4 text-sm text-slate-300 font-mono tabular-nums font-medium">{track.bpm}</td>
+                  <td className={clsx("px-4 py-4 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>{track.bpm}</td>
                   <td className="px-4 py-4 text-sm">
                     <span
-                      className="px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center"
+                      className={clsx(
+                        "px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center",
+                        isMatch ? "text-studio-gold border border-studio-gold/60" : ""
+                      )}
                       style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
                     >
                       {track.key || '--'}
@@ -579,7 +601,7 @@ export function Library() {
                       >
                         <Plus className="w-4 h-4" />
                       </button>
-                    {openActionsForTrackId === track.id && (
+                    {openActionsForTrackId === track.id && !(isSmartMatchEnabled && masterDeck.track && !isMatch) && (
                       <div className="absolute right-0 top-full mt-1 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
                         <div className="flex flex-col">
                           <button

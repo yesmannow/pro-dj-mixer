@@ -2,6 +2,77 @@
 
 import { useRef, useCallback, useEffect } from 'react';
 import { useMixerStore } from '@/store/mixerStore';
+import { AudioEngine } from '@/lib/audioEngine';
+
+type MeterTarget = 'A' | 'B' | 'Master';
+
+function VUMeter({ target }: { target: MeterTarget }) {
+  const segmentsRef = useRef<HTMLDivElement[]>([]);
+  const peakRef = useRef(0);
+  const peakHoldUntilRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const engine = AudioEngine.getInstance();
+    const update = (now: number) => {
+      let rms = 0;
+      let peak = 0;
+      if (target === 'Master') {
+        const energy = engine.getMasterEnergy();
+        rms = energy.rms;
+        peak = energy.low; // approximate peak feel
+      } else {
+        const energy = engine.getDeckEnergy(target);
+        rms = energy.rms;
+        peak = energy.peak;
+      }
+
+      const level = Math.min(1, Math.max(0, rms * 1.4));
+      const peakLevel = Math.min(1, Math.max(peakRef.current, peak));
+
+      // peak hold with gravity
+      if (peak > peakRef.current) {
+        peakRef.current = peak;
+        peakHoldUntilRef.current = now + 500;
+      } else if (now > peakHoldUntilRef.current) {
+        peakRef.current = Math.max(0, peakRef.current - 0.1);
+      }
+
+      const litCount = Math.round(level * 12);
+      const peakIndex = Math.min(11, Math.floor(peakLevel * 12));
+
+      segmentsRef.current.forEach((seg, idx) => {
+        const isPeak = idx === peakIndex;
+        const active = idx < litCount || isPeak;
+        const color =
+          idx >= 10 ? '#E11D48' :
+          idx >= 8 ? '#D4AF37' :
+          '#22c55e';
+        seg.style.opacity = active ? (isPeak ? '1' : '0.9') : '0.1';
+        seg.style.backgroundColor = color;
+        seg.style.boxShadow = active ? `0 0 8px ${color}` : 'none';
+      });
+
+      rafRef.current = requestAnimationFrame(update);
+    };
+    rafRef.current = requestAnimationFrame(update);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [target]);
+
+  return (
+    <div className="flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5">
+      {Array.from({ length: 12 }).map((_, idx) => (
+        <div
+          key={idx}
+          ref={(el) => { if (el) segmentsRef.current[idx] = el; }}
+          className="flex-1 rounded-[2px] transition-[opacity] duration-75"
+          style={{ backgroundColor: '#0f172a', opacity: 0.1 }}
+        />
+      ))}
+    </div>
+  );
+}
+import { AudioEngine } from '@/lib/audioEngine';
 
 function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
   const isDragging = useRef(false);
@@ -80,7 +151,7 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
 }
 
 export function Mixer() {
-  const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, setEQ, setVolume, setCrossfader, setCrossfaderCurve } = useMixerStore();
+  const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, vaultAmbience, setEQ, setVolume, setCrossfader, setCrossfaderCurve, setVaultAmbience } = useMixerStore();
 
   const isDraggingCrossfader = useRef(false);
   const crossfaderRef = useRef<HTMLDivElement>(null);
@@ -165,6 +236,16 @@ export function Mixer() {
   const volATop = `${(1 - volA) * 100}%`;
   const volBTop = `${(1 - volB) * 100}%`;
 
+  const handleAmbienceChange = (val: number) => {
+    const clamped = Math.max(0, Math.min(1, val));
+    setVaultAmbience(clamped);
+    AudioEngine.getInstance().setVaultAmbience(clamped);
+  };
+
+  useEffect(() => {
+    AudioEngine.getInstance().setVaultAmbience(vaultAmbience);
+  }, [vaultAmbience]);
+
   return (
     <div className="bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
       <div className="grid grid-cols-2 gap-8 w-full">
@@ -180,6 +261,7 @@ export function Mixer() {
         </div>
       </div>
       <div className="flex justify-center gap-6 w-full px-4">
+        <VUMeter target="A" />
         <div
           ref={volARef}
           className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
@@ -213,6 +295,7 @@ export function Mixer() {
             <div className="w-1.5 h-1 bg-green-500"></div>
           </div>
         </div>
+        <div className="flex flex-col items-center gap-2">
         <div
           ref={volBRef}
           className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
@@ -226,6 +309,8 @@ export function Mixer() {
             <div className="w-4 h-0.5 bg-studio-black"></div>
           </div>
         </div>
+        </div>
+        <VUMeter target="B" />
       </div>
       <div className="w-full px-4 mt-auto">
         <div
@@ -267,6 +352,22 @@ export function Mixer() {
           <p className="text-[8px] uppercase tracking-widest text-center text-slate-500">
             Crossfader ({crossfaderCurve === 'blend' ? 'Equal Power' : 'Scratch Cut'})
           </p>
+        </div>
+        <div className="mt-5 w-full flex items-center gap-3">
+          <div className="flex-1 h-2 rounded-full bg-studio-black border border-studio-gold/30 relative overflow-hidden cursor-pointer"
+               onClick={(e) => {
+                 const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                 handleAmbienceChange((e.clientX - rect.left) / rect.width);
+               }}>
+            <div className="absolute inset-y-0 left-0 bg-studio-gold/80 shadow-[0_0_10px_#D4AF37]" style={{ width: `${vaultAmbience * 100}%` }} />
+          </div>
+          <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-slate-300">
+            Vault Ambience
+            <span className="font-mono text-studio-gold">{Math.round(vaultAmbience * 100)}%</span>
+          </div>
+        </div>
+        <div className="mt-4 flex justify-center">
+          <VUMeter target="Master" />
         </div>
       </div>
     </div>

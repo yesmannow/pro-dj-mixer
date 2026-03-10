@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { motion } from 'motion/react';
 import { clsx } from 'clsx';
+import { MagneticButton } from '@/components/ui/MagneticButton';
 
 interface CuePointView {
   slot: number;
@@ -61,7 +61,7 @@ export function PerformancePads({
           );
 
           return (
-            <motion.button
+            <MagneticButton
               key={slot}
               type="button"
               whileTap={{ scale: 0.95 }}
@@ -117,7 +117,7 @@ export function PerformancePads({
                 </span>
               )}
               <div className="absolute bottom-1 right-1 text-[8px] text-gray-500">{slot}</div>
-            </motion.button>
+            </MagneticButton>
           );
         })}
       </div>

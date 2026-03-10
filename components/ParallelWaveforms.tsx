@@ -9,6 +9,7 @@ type DeckSnapshot = {
   duration: number;
   isPlaying: boolean;
   bpm: number;
+  buffer: AudioBuffer | null;
 };
 
 export function ParallelWaveforms() {
@@ -23,12 +24,14 @@ export function ParallelWaveforms() {
     duration: useDeckStore.getState().deckA.duration,
     isPlaying: useDeckStore.getState().deckA.isPlaying,
     bpm: Number(useDeckStore.getState().deckA.track?.bpm) || 120,
+    buffer: useDeckStore.getState().deckA.buffer,
   });
   const deckBRef = useRef<DeckSnapshot>({
     currentTime: useDeckStore.getState().deckB.currentTime,
     duration: useDeckStore.getState().deckB.duration,
     isPlaying: useDeckStore.getState().deckB.isPlaying,
     bpm: Number(useDeckStore.getState().deckB.track?.bpm) || 120,
+    buffer: useDeckStore.getState().deckB.buffer,
   });
 
   useEffect(() => {
@@ -40,6 +43,7 @@ export function ParallelWaveforms() {
           duration: d.duration,
           isPlaying: d.isPlaying,
           bpm: Number(d.track?.bpm) || 120,
+          buffer: d.buffer,
         };
       },
       (val) => {
@@ -54,6 +58,7 @@ export function ParallelWaveforms() {
           duration: d.duration,
           isPlaying: d.isPlaying,
           bpm: Number(d.track?.bpm) || 120,
+          buffer: d.buffer,
         };
       },
       (val) => {
@@ -129,35 +134,42 @@ export function ParallelWaveforms() {
       yOffset: number,
       color: string,
       playheadRaw: number,
-      duration: number,
-      isTop: boolean,
-      pixelsPerSecond: number
+      buffer: AudioBuffer | null,
+      pixelsPerSecond: number,
+      isTop: boolean
     ) => {
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      const centerY = yOffset + (isTop ? height : 0);
-      const amp = height * 0.8;
+      if (!buffer) return;
+      const left = buffer.getChannelData(0);
+      const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
+      const centerY = yOffset + height / 2;
+      const amp = height * 0.48;
+      const barWidth = 2;
+      const samplesPerBar = Math.max(1, Math.floor((barWidth / pixelsPerSecond) * buffer.sampleRate));
       const centerPixel = width / 2;
 
-      for (let x = 0; x < width; x++) {
+      ctx.fillStyle = color;
+
+      for (let x = 0; x < width; x += barWidth) {
         const timeAtPixel = playheadRaw + ((x - centerPixel) / pixelsPerSecond);
-        if (timeAtPixel < 0 || (duration > 0 && timeAtPixel > duration)) continue;
+        if (timeAtPixel < 0 || timeAtPixel > buffer.duration) continue;
 
-        const noiseScale = timeAtPixel * 15;
-        const val1 = Math.sin(noiseScale) * 0.5;
-        const val2 = Math.sin(noiseScale * 0.3) * 0.5;
-        const combined = (val1 + val2) * amp * (Math.sin(timeAtPixel * 2) > 0 ? 0.3 : 1);
-
-        const y = centerY + (isTop ? -Math.abs(combined) : Math.abs(combined));
-
-        if (x === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+        const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
+        let max = 0;
+        for (let i = 0; i < samplesPerBar; i++) {
+          const idx = sampleStart + i;
+          if (idx >= left.length) break;
+          const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
+        const abs = Math.abs(sample);
+        if (abs > max) max = abs;
       }
-
-      ctx.stroke();
-    };
+      const barHeight = max * amp;
+      if (isTop) {
+        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+      } else {
+        ctx.fillRect(x, centerY, barWidth, barHeight);
+      }
+    }
+  };
 
     const drawPlayhead = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
       const centerPixel = width / 2;
@@ -208,8 +220,8 @@ export function ParallelWaveforms() {
       drawBeatGrid(ctx, width, halfHeight, 0, snapA.bpm, playheadA, pixelsPerSecond);
       drawBeatGrid(ctx, width, halfHeight, halfHeight, snapB.bpm, playheadB, pixelsPerSecond);
 
-      drawWaveform(ctx, width, halfHeight, 0, COLOR_A, playheadA, snapA.duration, true, pixelsPerSecond);
-      drawWaveform(ctx, width, halfHeight, halfHeight, COLOR_B, playheadB, snapB.duration, false, pixelsPerSecond);
+      drawWaveform(ctx, width, halfHeight, 0, COLOR_A, playheadA, snapA.buffer, pixelsPerSecond, true);
+      drawWaveform(ctx, width, halfHeight, halfHeight, COLOR_B, playheadB, snapB.buffer, pixelsPerSecond, false);
 
       drawPlayhead(ctx, width, height);
 

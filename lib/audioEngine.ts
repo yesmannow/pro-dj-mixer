@@ -1,6 +1,16 @@
 export class AudioEngine {
   private static instance: AudioEngine;
   public context: AudioContext;
+  public masterGain: GainNode;
+  public masterAnalyser: AnalyserNode;
+  private bunkerConvolver: ConvolverNode;
+  private bunkerWetGain: GainNode;
+  private bunkerDryGain: GainNode;
+  private bunkerPreDelay: DelayNode;
+  private bunkerImpulseLoaded = false;
+  private masterDataArray: Uint8Array;
+  private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
+  private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array>> = {};
   private decks: Record<'A' | 'B', {
     buffer: AudioBuffer | null;
     source: AudioBufferSourceNode | null;
@@ -35,7 +45,8 @@ export class AudioEngine {
   private deckFxBuses: Partial<Record<'A' | 'B', {
     input: GainNode;
     crushPreGain: GainNode;
-    crushNode: WaveShaperNode;
+    crushNode: ScriptProcessorNode;
+    crushState: { step: number; holdSample: number; decimation: number; reduction: number };
     crushPostGain: GainNode;
     filter: BiquadFilterNode;
     delayNode: DelayNode;
@@ -53,6 +64,33 @@ export class AudioEngine {
 
   private constructor() {
     this.context = new (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext)();
+    this.masterGain = this.context.createGain();
+    this.masterGain.gain.value = 0.95;
+
+    this.masterAnalyser = this.context.createAnalyser();
+    this.masterAnalyser.fftSize = 512;
+    this.masterAnalyser.smoothingTimeConstant = 0.82;
+    this.masterDataArray = new Uint8Array(this.masterAnalyser.frequencyBinCount);
+
+    this.bunkerConvolver = this.context.createConvolver();
+    this.bunkerPreDelay = this.context.createDelay(1.0);
+    this.bunkerPreDelay.delayTime.value = 0.02; // 20ms
+    this.bunkerWetGain = this.context.createGain();
+    this.bunkerDryGain = this.context.createGain();
+    this.bunkerWetGain.gain.value = 0.2;
+    this.bunkerDryGain.gain.value = 0.9;
+
+    // Master routing: masterGain -> analyser -> (dry + bunker) -> destination
+    this.masterGain.connect(this.masterAnalyser);
+    this.masterAnalyser.connect(this.bunkerDryGain);
+    this.masterAnalyser.connect(this.bunkerPreDelay);
+    this.bunkerPreDelay.connect(this.bunkerConvolver);
+    this.bunkerConvolver.connect(this.bunkerWetGain);
+
+    this.bunkerDryGain.connect(this.context.destination);
+    this.bunkerWetGain.connect(this.context.destination);
+
+    void this.loadBunkerImpulse();
   }
 
   public static getInstance(): AudioEngine {
@@ -240,7 +278,23 @@ export class AudioEngine {
 
     const input = this.context.createGain();
     const crushPreGain = this.context.createGain();
-    const crushNode = this.context.createWaveShaper();
+    const crushNode = this.context.createScriptProcessor(256, 1, 1);
+    const crushState = { step: 0, holdSample: 0, decimation: 4, reduction: 4 };
+    crushNode.onaudioprocess = (event) => {
+      const input = event.inputBuffer.getChannelData(0);
+      const output = event.outputBuffer.getChannelData(0);
+      const decimation = Math.max(1, Math.round(crushState.decimation));
+      const reduction = Math.max(1, crushState.reduction);
+      for (let i = 0; i < input.length; i++) {
+        if (crushState.step % decimation === 0) {
+          const sample = input[i];
+          const aliased = Math.floor(sample * reduction) / reduction;
+          crushState.holdSample = aliased;
+        }
+        output[i] = crushState.holdSample;
+        crushState.step++;
+      }
+    };
     const crushPostGain = this.context.createGain();
     const filter = this.context.createBiquadFilter();
     const delayNode = this.context.createDelay(2);
@@ -280,6 +334,7 @@ export class AudioEngine {
       input,
       crushPreGain,
       crushNode,
+      crushState,
       crushPostGain,
       filter,
       delayNode,
@@ -325,11 +380,12 @@ export class AudioEngine {
     }
 
     if (type === 'crush') {
-      const curve = this.makeDistortionCurve(norm);
-      fx.crushNode.curve = curve;
-      fx.crushNode.oversample = '4x';
-      const preGain = 1 - norm * 0.35;
-      const postGain = 1 + norm * 0.6;
+      const decimation = 1 + norm * 12; // 1..13
+      const reduction = 4 + norm * 60; // quantization levels
+      const preGain = 1 - norm * 0.2;
+      const postGain = 1 + norm * 0.9;
+      fx.crushState.decimation = decimation;
+      fx.crushState.reduction = reduction;
       fx.crushPreGain.gain.setTargetAtTime(preGain, now, 0.03);
       fx.crushPostGain.gain.setTargetAtTime(postGain, now, 0.03);
     }
@@ -350,6 +406,75 @@ export class AudioEngine {
       curve[i] = quantized;
     }
     return curve;
+  }
+
+  private async loadBunkerImpulse() {
+    if (this.bunkerImpulseLoaded) return;
+    try {
+      const res = await fetch('/impulses/concrete-bunker.wav');
+      if (!res.ok) throw new Error('Failed IR fetch');
+      const array = await res.arrayBuffer();
+      this.bunkerConvolver.buffer = await this.context.decodeAudioData(array.slice(0));
+      this.bunkerImpulseLoaded = true;
+    } catch {
+      // Fallback synthetic IR: exponential decay noise burst
+      const length = this.context.sampleRate * 2.5;
+      const impulse = this.context.createBuffer(2, length, this.context.sampleRate);
+      for (let channel = 0; channel < impulse.numberOfChannels; channel++) {
+        const data = impulse.getChannelData(channel);
+        for (let i = 0; i < length; i++) {
+          const decay = Math.exp(-i / (this.context.sampleRate * 1.2));
+          data[i] = (Math.random() * 2 - 1) * decay;
+        }
+      }
+      this.bunkerConvolver.buffer = impulse;
+      this.bunkerImpulseLoaded = true;
+    }
+  }
+
+  public setVaultAmbience(amount: number) {
+    const wet = Math.max(0, Math.min(1, amount));
+    const dry = 1 - wet * 0.5;
+    const now = this.context.currentTime;
+    this.bunkerWetGain.gain.setTargetAtTime(wet, now, 0.05);
+    this.bunkerDryGain.gain.setTargetAtTime(dry, now, 0.05);
+  }
+
+  public getMasterEnergy(): { rms: number; low: number } {
+    this.masterAnalyser.getByteFrequencyData(this.masterDataArray);
+    let sum = 0;
+    let lowSum = 0;
+    const len = this.masterDataArray.length;
+    for (let i = 0; i < len; i++) {
+      const v = this.masterDataArray[i] / 255;
+      sum += v * v;
+      if (i < len * 0.1) lowSum += v;
+    }
+    return {
+      rms: Math.sqrt(sum / len),
+      low: lowSum / (len * 0.1),
+    };
+  }
+
+  public registerDeckAnalyser(deckId: 'A' | 'B', analyser: AnalyserNode) {
+    this.deckAnalysers[deckId] = analyser;
+    this.deckDataArrays[deckId] = new Uint8Array(analyser.frequencyBinCount);
+  }
+
+  public getDeckEnergy(deckId: 'A' | 'B'): { rms: number; peak: number } {
+    const analyser = this.deckAnalysers[deckId];
+    const arr = this.deckDataArrays[deckId];
+    if (!analyser || !arr) return { rms: 0, peak: 0 };
+    analyser.getByteTimeDomainData(arr);
+    let sum = 0;
+    let peak = 0;
+    for (let i = 0; i < arr.length; i++) {
+      const sample = (arr[i] - 128) / 128; // -1..1
+      const abs = Math.abs(sample);
+      sum += sample * sample;
+      if (abs > peak) peak = abs;
+    }
+    return { rms: Math.sqrt(sum / arr.length), peak };
   }
 
   public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {

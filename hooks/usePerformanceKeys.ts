@@ -33,7 +33,8 @@ export function usePerformanceKeys({ deckId, getCueTime, startStutter, stopStutt
     if (typeof window === 'undefined') return undefined;
 
     const engaged = new Set<number>();
-    const setShiftHeldGlobal = useUIStore.getState().setShiftHeld;
+    const { setShiftHeld: setShiftHeldGlobal } = useUIStore.getState();
+    const getIsShiftHeld = () => useUIStore.getState().isShiftHeld;
     const audioEngine = AudioEngine.getInstance();
 
     const keydown = (e: KeyboardEvent) => {
@@ -43,7 +44,9 @@ export function usePerformanceKeys({ deckId, getCueTime, startStutter, stopStutt
 
       if (e.key === 'Shift' && !shiftHeldRef.current) {
         shiftHeldRef.current = true;
-        setShiftHeldGlobal(true);
+        if (!getIsShiftHeld()) {
+          setShiftHeldGlobal(true);
+        }
         return;
       }
 
@@ -76,7 +79,9 @@ export function usePerformanceKeys({ deckId, getCueTime, startStutter, stopStutt
       if (e.key === 'Shift') {
         if (shiftHeldRef.current) {
           shiftHeldRef.current = false;
-          setShiftHeldGlobal(false);
+          if (getIsShiftHeld()) {
+            setShiftHeldGlobal(false);
+          }
         }
         return;
       }
@@ -104,7 +109,6 @@ export function usePerformanceKeys({ deckId, getCueTime, startStutter, stopStutt
     return () => {
       window.removeEventListener('keydown', keydown);
       window.removeEventListener('keyup', keyup);
-      setPressedSlots(new Set());
     };
   }, [deckId]);
 

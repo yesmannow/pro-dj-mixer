@@ -75,6 +75,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       analyserRef.current = engine.context.createAnalyser();
       analyserRef.current.fftSize = 256;
       dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
+      engine.registerDeckAnalyser(deckId, analyserRef.current);
 
       deckGainRef.current = fxBusRef.current.deckGain;
 
@@ -82,7 +83,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       stemChainRef.current.output.connect(fxBusRef.current.input);
       fxBusRef.current.output.connect(eqChainRef.current.input);
       eqChainRef.current.output.connect(analyserRef.current);
-      analyserRef.current.connect(engine.context.destination);
+      analyserRef.current.connect(engine.masterGain);
     }
 
     syncRuntime();

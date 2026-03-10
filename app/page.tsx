@@ -11,6 +11,7 @@ import { AddMusicModal } from '@/components/AddMusicModal';
 
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ViewControls } from '@/components/ViewControls';
+import { CRTTerminal } from '@/components/ui/CRTTerminal';
 
 export default function Home() {
   const {
@@ -27,7 +28,8 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
-    <div className="min-h-screen overflow-x-hidden flex flex-col bg-studio-black">
+    <CRTTerminal>
+      <div className="min-h-screen overflow-x-hidden flex flex-col bg-studio-black relative">
       <main className="flex-1 flex flex-col relative min-h-0">
         <ViewControls />
         {/* Primary UI Area */}
@@ -124,6 +126,7 @@ export default function Home() {
       </main>
       {isAddMusicModalOpen && <AddMusicModal />}
       <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-    </div>
+      </div>
+    </CRTTerminal>
   );
 }
