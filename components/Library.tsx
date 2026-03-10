@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Layers, ListChecks, UploadCloud, Loader2, Zap, FolderOpen, Trash2 } from 'lucide-react';
+import { Search, Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
-import { useLibraryStore } from '@/store/libraryStore';
+import { PIKO_VAULT_TRACKS, useLibraryStore } from '@/store/libraryStore';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useCueStore } from '@/store/cueStore';
@@ -144,18 +144,6 @@ export function Library() {
     e.dataTransfer.effectAllowed = 'copy';
   };
 
-  const handleLoadR2TestTrack = async () => {
-    await loadFromCloud([
-      {
-        id: 'r2-test-1',
-        title: 'Tortas de Jamon',
-        artist: 'R2 Public Demo',
-        url: 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev/tortas-de-jamon.mp3',
-        artworkUrl: 'https://images.unsplash.com/photo-1507878866276-a947ef722fee?auto=format&fit=crop&w=300&q=60'
-      }
-    ]);
-  };
-
   return (
     <div
       className={clsx(
@@ -240,12 +228,10 @@ export function Library() {
             ADD MUSIC
           </button>
           <button
-            onClick={handleLoadR2TestTrack}
-            disabled={isProcessingQueue}
-            className="flex items-center gap-2 px-4 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/30 rounded-full text-[11px] font-bold text-accent backdrop-blur-md shadow-lg transition-all flex-shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+            onClick={() => loadFromCloud(PIKO_VAULT_TRACKS)}
+            className="px-4 py-2 bg-studio-gold text-studio-black font-heading font-bold rounded hover:bg-yellow-500 transition-colors shrink-0"
           >
-            <Zap className="w-3.5 h-3.5" />
-            LOAD R2 TEST TRACK
+            LOAD VAULT
           </button>
         </div>
 

@@ -3,6 +3,21 @@ import { db, Track } from '@/lib/db';
 import toast from 'react-hot-toast';
 import type { AnalysisRequest, AnalysisResponse } from '@/lib/analysisWorker';
 
+const R2_BASE = 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev/audio';
+export const PIKO_VAULT_TRACKS = [
+  { id: 'piko-1', title: 'Tortas De Jamon', artist: 'Piko FG', url: `${R2_BASE}/Tortas%20De%20Jamon.mp3` },
+  { id: 'piko-2', title: 'Me Cuentan', artist: 'Piko FG', url: `${R2_BASE}/Me%20Cuentan.mp3` },
+  { id: 'piko-3', title: 'Sin Rencores', artist: 'Piko FG', url: `${R2_BASE}/Sin%20Rencores.mp3` },
+  { id: 'piko-4', title: 'Dejate Llevar', artist: 'Piko FG', url: `${R2_BASE}/Dejate%20Llevar.mp3` },
+  { id: 'piko-5', title: 'Entre Humos', artist: 'Piko FG', url: `${R2_BASE}/Entre%20Humos.mp3` }
+];
+
+// Reusable decode context (main thread only). Workers cannot use Web Audio APIs.
+const decodeContext =
+  typeof window !== 'undefined'
+    ? new (window.AudioContext || (window as any).webkitAudioContext)()
+    : null;
+
 interface LibraryState {
   tracks: Track[];
   processingTracks: { id: string; name: string }[];
@@ -12,7 +27,7 @@ interface LibraryState {
   addTrack: (file: File) => Promise<void>;
   seedLibrary: () => Promise<void>;
   queueFilesForIngestion: (files: File[]) => Promise<void>;
-  loadFromCloud: (cloudTracks: { id: string; title: string; artist: string; url: string; artworkUrl?: string }[]) => Promise<void>;
+  loadFromCloud: (cloudTracks: typeof PIKO_VAULT_TRACKS) => Promise<void>;
 }
 
 const mockAnalysis = async (file: File | string) => {
@@ -72,7 +87,7 @@ const formatDuration = (seconds: number) => {
 };
 
 // Helper to wrap the worker postMessage in a Promise
-const analyzeAudio = (payload: { buffer?: ArrayBuffer; url?: string; filename?: string }): Promise<AnalysisResponse> => {
+const analyzeAudio = (payload: { id: string; channelData: Float32Array; sampleRate: number; duration: number }): Promise<AnalysisResponse> => {
   return new Promise((resolve, reject) => {
     const runAsync = async () => {
       if (!worker) {
@@ -80,25 +95,36 @@ const analyzeAudio = (payload: { buffer?: ArrayBuffer; url?: string; filename?: 
         return;
       }
 
-      const requestId = crypto.randomUUID();
+      const requestId = payload.id;
 
       const handleMessage = (e: MessageEvent<AnalysisResponse>) => {
         if (e.data.id === requestId) {
           worker?.removeEventListener('message', handleMessage);
+          if (e.data.error) {
+            reject(new Error(e.data.error));
+            return;
+          }
           resolve(e.data);
         }
       };
 
       worker.addEventListener('message', handleMessage);
 
-      const request: AnalysisRequest = { id: requestId, filename: payload.filename };
-      if (payload.buffer) request.buffer = payload.buffer;
-      if (payload.url) request.url = payload.url;
+      const request: AnalysisRequest = {
+        id: requestId,
+        channelData: payload.channelData,
+        sampleRate: payload.sampleRate,
+        duration: payload.duration,
+      };
 
-      const transferables: Transferable[] = [];
-      if (payload.buffer) transferables.push(payload.buffer);
-
-      worker.postMessage(request, transferables); // Transfer buffer ownership to save memory
+      // Attempt true zero-copy transfer; if the runtime refuses (e.g. AudioBuffer-backed data),
+      // fall back to copying into a transferable ArrayBuffer to avoid crashing.
+      try {
+        worker.postMessage(request, [payload.channelData.buffer]);
+      } catch {
+        const copy = new Float32Array(payload.channelData);
+        worker.postMessage({ ...request, channelData: copy }, [copy.buffer]);
+      }
     };
 
     runAsync().catch((error) => reject(error instanceof Error ? error : new Error('Analysis failed')));
@@ -106,6 +132,26 @@ const analyzeAudio = (payload: { buffer?: ArrayBuffer; url?: string; filename?: 
 };
 
 const yieldToUi = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+const fetchArrayBufferStrict = async (url: string) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`Failed to fetch from cloud: ${response.status} - ${url}`);
+  const contentType = response.headers.get('content-type');
+  if (contentType && contentType.includes('text/html')) {
+    throw new Error('Cloudflare returned an HTML error page. Check exact filename and path.');
+  }
+  return await response.arrayBuffer();
+};
+
+const decodeToMonoChannelData = async (arrayBuffer: ArrayBuffer) => {
+  if (!decodeContext) throw new Error('Audio decoding is only available in the browser.');
+  const audioBuffer = await decodeContext.decodeAudioData(arrayBuffer);
+  return {
+    channelData: audioBuffer.getChannelData(0),
+    sampleRate: audioBuffer.sampleRate,
+    duration: audioBuffer.duration,
+  };
+};
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
   tracks: [],
@@ -140,22 +186,22 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         set({ queueProgress: `Analyzing ${i + 1} of ${total}: ${file.name}` });
 
         try {
-          // Offload to Web Worker
           const arrayBuffer = await file.arrayBuffer();
-          const res = await analyzeAudio({ buffer: arrayBuffer, filename: file.name });
+          const decoded = await decodeToMonoChannelData(arrayBuffer);
+          const res = await analyzeAudio({ id: crypto.randomUUID(), ...decoded });
 
           const artworkUrl = URL.createObjectURL(file);
 
           const newTrack: Track = {
-            title: res.title || file.name.replace(/\.[^/.]+$/, ""),
-            artist: res.artist || 'Unknown Artist',
+            title: file.name.replace(/\.[^/.]+$/, ""),
+            artist: 'Unknown Artist',
             bpm: res.bpm.toString(),
-            key: res.keySignature ?? '--',
+            key: '--',
             duration: formatDuration(res.duration),
             energy: "Medium", // Algorithm pending
             hasVocal: false, // Algorithm pending
             fileBlob: file,
-            artworkUrl: res.albumArt || artworkUrl,
+            artworkUrl,
             overviewWaveform: Array.from(res.overviewPeaks),
             createdAt: Date.now(),
           };
@@ -296,18 +342,20 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
       try {
         set({ queueProgress: `Downloading & analyzing ${i + 1} of ${cloudTracks.length}: ${track.title}` });
-        const res = await analyzeAudio({ url: track.url, filename: track.title });
+        const arrayBuffer = await fetchArrayBufferStrict(track.url);
+        const decoded = await decodeToMonoChannelData(arrayBuffer);
+        const res = await analyzeAudio({ id: track.id, ...decoded });
 
         const newTrack: Track = {
-          title: res.title || track.title,
-          artist: res.artist || track.artist || 'Unknown Artist',
+          title: track.title,
+          artist: track.artist || 'Unknown Artist',
           bpm: res.bpm.toString(),
-          key: res.keySignature ?? '--',
+          key: '--',
           duration: formatDuration(res.duration),
           energy: "Medium", // Placeholder until energy analysis exists
           hasVocal: false,  // Placeholder until vocal detection exists
           audioUrl: track.url,
-          artworkUrl: track.artworkUrl || pickRandomArtworkUrl(),
+          artworkUrl: pickRandomArtworkUrl(),
           overviewWaveform: Array.from(res.overviewPeaks),
           createdAt: Date.now(),
         };
@@ -337,7 +385,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   addTrack: async (file: File) => {
-    // Deprecated for the Universal Importer Queue, but leaving to prevent breaking legacy tests
-    get().queueFilesForIngestion([file]);
+    // Legacy single-file ingest path; keep behavior consistent with the queue.
+    await get().queueFilesForIngestion([file]);
   }
 }));

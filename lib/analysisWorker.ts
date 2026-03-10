@@ -1,8 +1,8 @@
 export interface AnalysisRequest {
   id: string;
-  buffer?: ArrayBuffer;
-  url?: string;
-  filename?: string;
+  channelData: Float32Array;
+  sampleRate: number;
+  duration: number;
 }
 
 export interface AnalysisResponse {
@@ -10,11 +10,7 @@ export interface AnalysisResponse {
   bpm: number;
   duration: number;
   overviewPeaks: Float32Array;
-  title?: string;
-  artist?: string;
-  albumArt?: string;
-  keySignature?: string;
-  error?: string;
+  error: string | null;
 }
 
 const DEFAULT_BPM = 120;
@@ -42,24 +38,6 @@ const computeOverviewPeaks = (samples: Float32Array, size: number) => {
   }
 
   return peaks;
-};
-
-const mixDown = (buffer: AudioBuffer) => {
-  if (buffer.numberOfChannels === 1) return buffer.getChannelData(0);
-
-  const length = buffer.length;
-  const mix = new Float32Array(length);
-  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
-    const data = buffer.getChannelData(ch);
-    for (let i = 0; i < length; i++) {
-      mix[i] += data[i];
-    }
-  }
-  const scale = 1 / buffer.numberOfChannels;
-  for (let i = 0; i < length; i++) {
-    mix[i] *= scale;
-  }
-  return mix;
 };
 
 const estimateBpm = (samples: Float32Array, sampleRate: number) => {
@@ -128,55 +106,32 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
   return bestBpm;
 };
 
-const handleAnalyze = async (request: AnalysisRequest & { buffer: ArrayBuffer }): Promise<AnalysisResponse> => {
-  const offlineContext = new OfflineAudioContext(1, 1, 44100);
-  const decoded = await offlineContext.decodeAudioData(request.buffer.slice(0));
-  const mono = mixDown(decoded);
-  const overviewPeaks = computeOverviewPeaks(mono, 500);
-  const bpm = estimateBpm(mono, decoded.sampleRate);
+const handleAnalyze = (request: AnalysisRequest): AnalysisResponse => {
+  const overviewPeaks = computeOverviewPeaks(request.channelData, 500);
+  const bpm = estimateBpm(request.channelData, request.sampleRate);
 
-  return {
-    id: request.id,
-    bpm,
-    duration: decoded.duration,
-    overviewPeaks
-  };
+  return { id: request.id, bpm, duration: request.duration, overviewPeaks, error: null };
 };
 
-const ctx: DedicatedWorkerGlobalScope = self as any;
+const ctx = self as any;
 
 ctx.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const request = event.data;
   try {
-    let buffer: ArrayBuffer | undefined = request.buffer;
-
-    if (!buffer && request.url) {
-      const response = await fetch(request.url, { mode: 'cors' });
-      if (!response.ok) {
-        throw new Error(`Failed to fetch audio from cloud: ${response.status} ${response.statusText}`);
-      }
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('text/xml')) {
-        throw new Error('Cloudflare returned an XML error instead of an audio file. Check the exact file URL/Path.');
-      }
-      buffer = await response.arrayBuffer();
+    if (!request.channelData || typeof request.sampleRate !== 'number' || typeof request.duration !== 'number') {
+      throw new Error('Invalid analysis request: expected channelData, sampleRate, duration.');
     }
 
-    if (!buffer) {
-      throw new Error('No audio data provided');
-    }
-
-    const response = await handleAnalyze({ ...request, buffer });
+    const response = handleAnalyze(request);
     ctx.postMessage(response, [response.overviewPeaks.buffer]);
   } catch (error) {
-    console.error('analysisWorker failed to analyze audio:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
     const response: AnalysisResponse = {
-      id: request.id,
+      id: request?.id ?? 'unknown',
       bpm: DEFAULT_BPM,
-      duration: 0,
+      duration: request?.duration ?? 0,
       overviewPeaks: new Float32Array(500),
-      error: message
+      error: message,
     };
     ctx.postMessage(response);
   }
