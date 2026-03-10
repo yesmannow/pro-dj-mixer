@@ -25,7 +25,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const eqChainRef = useRef<ReturnType<AudioEngine['createEQChain']> | null>(null);
   const deckGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const pauseTimeRef = useRef<number>(0);
   const currentTimeRef = useRef<number>(0);

@@ -8,9 +8,9 @@ export class AudioEngine {
   private bunkerDryGain: GainNode;
   private bunkerPreDelay: DelayNode;
   private bunkerImpulseLoaded = false;
-  private masterDataArray: Uint8Array;
+  private masterDataArray: Uint8Array<ArrayBuffer>;
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
-  private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array>> = {};
+  private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
   private decks: Record<'A' | 'B', {
     buffer: AudioBuffer | null;
     source: AudioBufferSourceNode | null;
