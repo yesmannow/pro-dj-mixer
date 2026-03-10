@@ -8,9 +8,9 @@ export class AudioEngine {
   private bunkerDryGain: GainNode;
   private bunkerPreDelay: DelayNode;
   private bunkerImpulseLoaded = false;
-  private masterDataArray: Uint8Array;
+  private masterDataArray: Uint8Array<ArrayBuffer>;
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
-  private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array>> = {};
+  private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
   private decks: Record<'A' | 'B', {
     buffer: AudioBuffer | null;
     source: AudioBufferSourceNode | null;
@@ -70,7 +70,8 @@ export class AudioEngine {
     this.masterAnalyser = this.context.createAnalyser();
     this.masterAnalyser.fftSize = 512;
     this.masterAnalyser.smoothingTimeConstant = 0.82;
-    this.masterDataArray = new Uint8Array(this.masterAnalyser.frequencyBinCount);
+    // Cast required: TypeScript 5.9 tightened Web Audio API types to require ArrayBuffer
+    this.masterDataArray = new Uint8Array(this.masterAnalyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
 
     this.bunkerConvolver = this.context.createConvolver();
     this.bunkerPreDelay = this.context.createDelay(1.0);
@@ -458,7 +459,8 @@ export class AudioEngine {
 
   public registerDeckAnalyser(deckId: 'A' | 'B', analyser: AnalyserNode) {
     this.deckAnalysers[deckId] = analyser;
-    this.deckDataArrays[deckId] = new Uint8Array(analyser.frequencyBinCount);
+    // Cast required: TypeScript 5.9 tightened Web Audio API types to require ArrayBuffer
+    this.deckDataArrays[deckId] = new Uint8Array(analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>;
   }
 
   public getDeckEnergy(deckId: 'A' | 'B'): { rms: number; peak: number } {

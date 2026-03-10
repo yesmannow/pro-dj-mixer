@@ -433,7 +433,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
           tracks: dedupeVisibleTracks([...state.tracks, newTrack].sort((a, b) => b.createdAt - a.createdAt))
         }));
       } catch (error) {
-        console.error(`Failed to seed ${track.name}`, error);
+        console.error(`Failed to seed ${track.title}`, error);
       } finally {
         set(state => ({
           processingTracks: state.processingTracks.filter(t => t.id !== tempId)

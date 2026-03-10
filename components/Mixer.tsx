@@ -12,7 +12,7 @@ const VUMeter = ({ deckId }: { deckId: MeterTarget }) => {
   const peakRef = useRef(0);
   const peakTimerRef = useRef(0);
   const velocityRef = useRef(0);
-  const rafRef = useRef<number>();
+  const rafRef = useRef<number>(0);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
