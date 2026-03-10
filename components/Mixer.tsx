@@ -1,78 +1,87 @@
 'use client';
 
 import { useRef, useCallback, useEffect } from 'react';
-import { useMixerStore } from '@/store/mixerStore';
 import { AudioEngine } from '@/lib/audioEngine';
+import { useMixerStore } from '@/store/mixerStore';
 
 type MeterTarget = 'A' | 'B' | 'Master';
 
-function VUMeter({ target }: { target: MeterTarget }) {
+const VUMeter = ({ deckId }: { deckId: MeterTarget }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const segmentsRef = useRef<HTMLDivElement[]>([]);
   const peakRef = useRef(0);
-  const peakHoldUntilRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
+  const peakTimerRef = useRef(0);
+  const velocityRef = useRef(0);
+  const rafRef = useRef<number>();
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
-    const update = (now: number) => {
-      let rms = 0;
+    const ensureSegments = () => {
+      const nodes = containerRef.current?.querySelectorAll<HTMLDivElement>('[data-seg]');
+      if (nodes) segmentsRef.current = Array.from(nodes);
+    };
+    ensureSegments();
+
+    const tick = () => {
+      let level = 0;
       let peak = 0;
-      if (target === 'Master') {
-        const energy = engine.getMasterEnergy();
-        rms = energy.rms;
-        peak = energy.low; // approximate peak feel
+      if (deckId === 'Master') {
+        const data = engine.getMasterEnergy();
+        level = data.rms;
+        peak = data.rms;
       } else {
-        const energy = engine.getDeckEnergy(target);
-        rms = energy.rms;
-        peak = energy.peak;
+        const data = engine.getDeckEnergy(deckId);
+        level = data.rms;
+        peak = data.peak;
       }
 
-      const level = Math.min(1, Math.max(0, rms * 1.4));
-      const peakLevel = Math.min(1, Math.max(peakRef.current, peak));
-
-      // peak hold with gravity
+      // Falling peak physics
       if (peak > peakRef.current) {
         peakRef.current = peak;
-        peakHoldUntilRef.current = now + 500;
-      } else if (now > peakHoldUntilRef.current) {
-        peakRef.current = Math.max(0, peakRef.current - 0.1);
+        velocityRef.current = 0;
+        peakTimerRef.current = 30; // ~500ms at 60fps
+      } else {
+        if (peakTimerRef.current > 0) {
+          peakTimerRef.current -= 1;
+        } else {
+          velocityRef.current += 0.005;
+          peakRef.current = Math.max(0, peakRef.current - velocityRef.current);
+        }
       }
 
-      const litCount = Math.round(level * 12);
-      const peakIndex = Math.min(11, Math.floor(peakLevel * 12));
+      const lit = Math.round(Math.min(1, level) * 12);
+      const peakIndex = Math.min(11, Math.floor(peakRef.current * 12));
 
       segmentsRef.current.forEach((seg, idx) => {
-        const isPeak = idx === peakIndex;
-        const active = idx < litCount || isPeak;
-        const color =
-          idx >= 10 ? '#E11D48' :
-          idx >= 8 ? '#D4AF37' :
-          '#22c55e';
-        seg.style.opacity = active ? (isPeak ? '1' : '0.9') : '0.1';
+        const color = idx >= 10 ? '#E11D48' : idx >= 8 ? '#D4AF37' : '#22c55e';
+        const active = idx < lit || idx === peakIndex;
         seg.style.backgroundColor = color;
+        seg.style.opacity = active ? (idx === peakIndex ? '1' : '0.9') : '0.1';
         seg.style.boxShadow = active ? `0 0 8px ${color}` : 'none';
       });
 
-      rafRef.current = requestAnimationFrame(update);
+      rafRef.current = requestAnimationFrame(tick);
     };
-    rafRef.current = requestAnimationFrame(update);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [target]);
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [deckId]);
 
   return (
-    <div className="flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5">
+    <div ref={containerRef} className="flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5">
       {Array.from({ length: 12 }).map((_, idx) => (
         <div
           key={idx}
-          ref={(el) => { if (el) segmentsRef.current[idx] = el; }}
+          data-seg
           className="flex-1 rounded-[2px] transition-[opacity] duration-75"
           style={{ backgroundColor: '#0f172a', opacity: 0.1 }}
         />
       ))}
     </div>
   );
-}
-import { AudioEngine } from '@/lib/audioEngine';
+};
 
 function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
   const isDragging = useRef(false);
@@ -261,7 +270,7 @@ export function Mixer() {
         </div>
       </div>
       <div className="flex justify-center gap-6 w-full px-4">
-        <VUMeter target="A" />
+        <VUMeter deckId="A" />
         <div
           ref={volARef}
           className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
@@ -310,7 +319,7 @@ export function Mixer() {
           </div>
         </div>
         </div>
-        <VUMeter target="B" />
+        <VUMeter deckId="B" />
       </div>
       <div className="w-full px-4 mt-auto">
         <div
@@ -367,7 +376,7 @@ export function Mixer() {
           </div>
         </div>
         <div className="mt-4 flex justify-center">
-          <VUMeter target="Master" />
+          <VUMeter deckId="Master" />
         </div>
       </div>
     </div>
