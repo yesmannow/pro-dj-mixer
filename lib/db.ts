@@ -33,6 +33,7 @@ export interface CuePoint {
 
 export interface Track {
   id?: number;
+  sourceId?: string;
   title: string;
   artist: string;
   bpm: string;
@@ -71,6 +72,13 @@ export class DJDatabase extends Dexie {
     });
     this.version(5).stores({
       tracks: '++id, title, artist, bpm, key, createdAt, audioUrl, artworkUrl',
+      cuePoints: '++id, trackId, [trackId+slot]',
+      crates: '++id, &name, createdAt',
+      crateTracks: '++id, crateId, trackId, [crateId+trackId]',
+      history: '++id, trackId, playedAt'
+    });
+    this.version(6).stores({
+      tracks: '++id, sourceId, title, artist, bpm, key, createdAt, audioUrl, artworkUrl',
       cuePoints: '++id, trackId, [trackId+slot]',
       crates: '++id, &name, createdAt',
       crateTracks: '++id, crateId, trackId, [crateId+trackId]',

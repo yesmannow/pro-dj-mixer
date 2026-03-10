@@ -3,9 +3,16 @@ import { useDeckStore } from '@/store/deckStore';
 import { useMixerStore } from '@/store/mixerStore';
 import { AudioEngine } from '@/lib/audioEngine';
 
+interface AudioDataSnapshot {
+  rms: number;
+  low: number;
+  mid: number;
+  high: number;
+}
+
 export function useDeckAudio(deckId: 'A' | 'B') {
   const deckState = useDeckStore((state) => deckId === 'A' ? state.deckA : state.deckB);
-  const { togglePlay, setVolume } = useDeckStore();
+  const { togglePlay, setVolume, setCurrentTime: setDeckCurrentTime } = useDeckStore();
 
   const mixerState = useMixerStore();
   const eqState = deckId === 'A' ? mixerState.eqA : mixerState.eqB;
@@ -13,10 +20,10 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const crossfaderCurve = mixerState.crossfaderCurve ?? 'blend';
 
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
   const stemChainRef = useRef<ReturnType<AudioEngine['createStemChain']> | null>(null);
   const fxBusRef = useRef<ReturnType<AudioEngine['createDeckFxBus']> | null>(null);
   const eqChainRef = useRef<ReturnType<AudioEngine['createEQChain']> | null>(null);
+  const deckGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const dataArrayRef = useRef<Uint8Array | null>(null);
 
@@ -32,11 +39,36 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     vocals: false
   });
 
+  const syncRuntime = useCallback(() => {
+    const engine = AudioEngine.getInstance();
+    const runtimePlaybackRate = Math.max(0.5, Math.min(2.0, 1 + deckState.pitchPercent / 100));
+
+    engine.registerDeckRuntime(deckId, {
+      buffer: deckState.buffer,
+      source: sourceRef.current,
+      stemInput: stemChainRef.current?.input ?? null,
+      deckGain: deckGainRef.current,
+      isPlaying: deckState.isPlaying,
+      playbackRate: runtimePlaybackRate,
+      pauseTime: pauseTimeRef.current,
+      onSourceSwap: (next) => {
+        sourceRef.current = next;
+        lastContextTimeRef.current = engine.context.currentTime;
+        currentTimeRef.current = pauseTimeRef.current;
+      },
+      onPauseTime: (nextTime) => {
+        pauseTimeRef.current = nextTime;
+        currentTimeRef.current = nextTime;
+        setCurrentTime(nextTime);
+        setDeckCurrentTime(deckId, nextTime);
+      }
+    });
+  }, [deckId, deckState.buffer, deckState.isPlaying, deckState.pitchPercent, setDeckCurrentTime]);
+
   useEffect(() => {
     const engine = AudioEngine.getInstance();
 
-    if (!gainRef.current) {
-      gainRef.current = engine.context.createGain();
+    if (!deckGainRef.current) {
       stemChainRef.current = engine.createStemChain(deckId);
       fxBusRef.current = engine.createDeckFxBus(deckId);
       eqChainRef.current = engine.createEQChain();
@@ -44,28 +76,33 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       analyserRef.current.fftSize = 256;
       dataArrayRef.current = new Uint8Array(analyserRef.current.frequencyBinCount);
 
-      // Connect source -> stem crossover -> FX bus -> EQ -> analyser -> gain -> destination
+      deckGainRef.current = fxBusRef.current.deckGain;
+
+      // Connect source -> stem crossover -> FX bus -> EQ -> analyser -> destination
       stemChainRef.current.output.connect(fxBusRef.current.input);
       fxBusRef.current.output.connect(eqChainRef.current.input);
       eqChainRef.current.output.connect(analyserRef.current);
-      analyserRef.current.connect(gainRef.current);
-      gainRef.current.connect(engine.context.destination);
+      analyserRef.current.connect(engine.context.destination);
     }
 
-    if (gainRef.current) {
+    syncRuntime();
+
+    if (deckGainRef.current) {
       // Calculate final volume based on deck volume and crossfader
       const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
       const crossfaderGain = deckId === 'A' ? gainA : gainB;
-      gainRef.current.gain.value = deckState.volume * crossfaderGain;
+      const targetGain = deckState.volume * crossfaderGain;
+      deckGainRef.current.gain.setTargetAtTime(targetGain, engine.context.currentTime, 0.03);
     }
 
     if (eqChainRef.current) {
       const mapEQ = (val: number) => val < 0 ? val * 24 : val * 6;
-      eqChainRef.current.low.gain.value = mapEQ(eqState.low);
-      eqChainRef.current.mid.gain.value = mapEQ(eqState.mid);
-      eqChainRef.current.high.gain.value = mapEQ(eqState.high);
+      const now = engine.context.currentTime;
+      eqChainRef.current.low.gain.setTargetAtTime(mapEQ(eqState.low), now, 0.02);
+      eqChainRef.current.mid.gain.setTargetAtTime(mapEQ(eqState.mid), now, 0.02);
+      eqChainRef.current.high.gain.setTargetAtTime(mapEQ(eqState.high), now, 0.02);
     }
-  }, [deckState.volume, crossfader, crossfaderCurve, eqState, deckId]);
+  }, [deckState.volume, crossfader, crossfaderCurve, eqState, deckId, syncRuntime]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -74,7 +111,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       if (sourceRef.current) {
         try {
           sourceRef.current.stop();
-        } catch (e) {
+        } catch {
           // Ignore if already stopped
         }
         sourceRef.current.disconnect();
@@ -84,10 +121,11 @@ export function useDeckAudio(deckId: 'A' | 'B') {
         cancelAnimationFrame(animationRef.current);
         animationRef.current = null;
       }
+      syncRuntime();
     };
 
     const playAudio = async () => {
-      if (!deckState.buffer || !gainRef.current || !eqChainRef.current || !stemChainRef.current || !fxBusRef.current) return;
+      if (!deckState.buffer || !eqChainRef.current || !stemChainRef.current || !fxBusRef.current) return;
 
       await engine.resume();
 
@@ -101,6 +139,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
       sourceRef.current.start(0, pauseTimeRef.current);
 
+      syncRuntime();
+
       currentTimeRef.current = pauseTimeRef.current;
       lastContextTimeRef.current = engine.context.currentTime;
 
@@ -113,12 +153,14 @@ export function useDeckAudio(deckId: 'A' | 'B') {
           const newTime = currentTimeRef.current + delta * sourceRef.current.playbackRate.value;
           currentTimeRef.current = newTime;
           setCurrentTime(newTime);
+          setDeckCurrentTime(deckId, newTime);
 
           if (newTime >= deckState.buffer.duration) {
             togglePlay(deckId);
             pauseTimeRef.current = 0;
             currentTimeRef.current = 0;
             setCurrentTime(0);
+            setDeckCurrentTime(deckId, 0);
           } else {
             animationRef.current = requestAnimationFrame(updateTime);
           }
@@ -140,7 +182,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     return () => {
       stopAudio();
     };
-  }, [deckState.isPlaying, deckState.buffer, deckId, togglePlay]);
+  }, [deckId, deckState.buffer, deckState.isPlaying, setDeckCurrentTime, syncRuntime, togglePlay]);
 
   useEffect(() => {
     if (!sourceRef.current) return;
@@ -150,16 +192,15 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       AudioEngine.getInstance().context.currentTime,
       0.02
     );
-  }, [deckState.pitchPercent]);
+    syncRuntime();
+  }, [deckState.pitchPercent, syncRuntime]);
 
   useEffect(() => {
-    const bpm = Number(deckState.track?.bpm);
-    const validBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
-    const halfBeatSeconds = 60 / validBpm / 2;
     const engine = AudioEngine.getInstance();
     engine.createDeckFxBus(deckId);
-    engine.setDeckDelay(deckId, halfBeatSeconds, 0.35, 0);
-    engine.setDeckReverb(deckId, 0);
+    engine.setDeckFX(deckId, 'echo', 0);
+    engine.setDeckFX(deckId, 'filter', 50);
+    engine.setDeckFX(deckId, 'crush', 0);
   }, [deckId, deckState.track?.id, deckState.track?.bpm]);
 
   // Reset pause time when a new track is loaded
@@ -167,8 +208,10 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     pauseTimeRef.current = 0;
     currentTimeRef.current = 0;
     const timer = setTimeout(() => setCurrentTime(0), 0);
+    syncRuntime();
+    setDeckCurrentTime(deckId, 0);
     return () => clearTimeout(timer);
-  }, [deckState.track]);
+  }, [deckState.track, syncRuntime, deckId, setDeckCurrentTime]);
 
   const scrubTrack = useCallback((timeDelta: number) => {
     if (!deckState.buffer) return;
@@ -179,6 +222,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       pauseTimeRef.current = newTime;
       currentTimeRef.current = newTime;
       setCurrentTime(newTime);
+      setDeckCurrentTime(deckId, newTime);
+      syncRuntime();
     } else {
       if (sourceRef.current) {
         const rate = 1.0 + timeDelta * 10;
@@ -189,7 +234,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
         );
       }
     }
-  }, [deckState.buffer, deckState.isPlaying]);
+  }, [deckId, deckState.buffer, deckState.isPlaying, setDeckCurrentTime, syncRuntime]);
 
   const endScrub = useCallback(() => {
     if (sourceRef.current && deckState.isPlaying) {
@@ -201,9 +246,11 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     }
   }, [deckState.isPlaying]);
 
-  const getAudioData = useCallback(() => {
-    if (!analyserRef.current || !dataArrayRef.current) return { rms: 0, low: 0, mid: 0, high: 0 };
-    analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
+  const getAudioData = useCallback((): AudioDataSnapshot => {
+    if (!analyserRef.current || !dataArrayRef.current) {
+      return { rms: 0, low: 0, mid: 0, high: 0 };
+    }
+    analyserRef.current.getByteFrequencyData(dataArrayRef.current);
 
     let sum = 0, lowSum = 0, midSum = 0, highSum = 0;
     const len = dataArrayRef.current.length;

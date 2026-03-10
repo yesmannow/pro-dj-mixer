@@ -56,4 +56,74 @@
     background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(255,255,255,0.1) 100%);
     pointer-events: none;
   }
+
+  /* Brutalist Rubberized Pad Styles */
+  .mpc-grid-container {
+    background: #050505;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #1a1a1a;
+    box-shadow: inset 0 2px 10px rgba(0, 0, 0, 1);
+  }
+
+  .mpc-pad {
+    aspect-ratio: 1 / 1;
+    border-radius: 2px;
+    background: radial-gradient(circle at center, #1a1a1a 0%, #111111 100%);
+    border: 1px solid #222;
+    box-shadow:
+      0 4px 0 0 #000000,
+      inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    position: relative;
+    transition: all 0.05s ease;
+    cursor: pointer;
+    overflow: hidden;
+  }
+
+  .mpc-pad:active,
+  .mpc-pad-pressed {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 0 #000000;
+    background: #ffffff !important;
+  }
+
+  .mpc-pad-set-A { border-color: #D4AF37; box-shadow: 0 0 12px rgba(212, 175, 55, 0.3), 0 4px 0 0 #000; }
+  .mpc-pad-set-B { border-color: #E11D48; box-shadow: 0 0 12px rgba(225, 29, 72, 0.3), 0 4px 0 0 #000; }
+
+  .mpc-label {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    font-family: var(--font-mono);
+    font-size: 8px;
+    text-transform: uppercase;
+    color: #444;
+    letter-spacing: 0.1em;
+  }
+
+  .del-mode {
+    background: rgba(225, 29, 72, 0.2);
+    border-color: #E11D48;
+    color: #E11D48;
+  }
+
+  /* Deck containment to prevent jogwheel bleed */
+  .deck-container {
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 1.75rem;
+    min-height: 620px;
+  }
+
+  .jogwheel-wrapper {
+    position: relative;
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 1rem 0;
+  }
 }

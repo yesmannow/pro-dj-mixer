@@ -5,12 +5,42 @@ import type { AnalysisRequest, AnalysisResponse } from '@/lib/analysisWorker';
 
 const R2_BASE = 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev/audio';
 export const PIKO_VAULT_TRACKS = [
-  { id: 'piko-1', title: 'Tortas De Jamon', artist: 'Piko FG', url: `${R2_BASE}/Tortas%20De%20Jamon.mp3` },
-  { id: 'piko-2', title: 'Me Cuentan', artist: 'Piko FG', url: `${R2_BASE}/Me%20Cuentan.mp3` },
-  { id: 'piko-3', title: 'Sin Rencores', artist: 'Piko FG', url: `${R2_BASE}/Sin%20Rencores.mp3` },
-  { id: 'piko-4', title: 'Dejate Llevar', artist: 'Piko FG', url: `${R2_BASE}/Dejate%20Llevar.mp3` },
-  { id: 'piko-5', title: 'Entre Humos', artist: 'Piko FG', url: `${R2_BASE}/Entre%20Humos.mp3` }
-];
+  { id: 'piko-1', title: 'Amor Sincero', artist: 'Piko FG', url: `${R2_BASE}/Amor%20Sincero.mp3` },
+  { id: 'piko-2', title: 'Amores Perdidos', artist: 'Piko FG', url: `${R2_BASE}/Amores%20Perdidos.mp3` },
+  { id: 'piko-3', title: 'Bungalow', artist: 'Piko FG', url: `${R2_BASE}/Bungalow.mp3` },
+  { id: 'piko-4', title: 'Corazon Y Mente', artist: 'Piko FG', url: `${R2_BASE}/Corazon%20Y%20Mente.mp3` },
+  { id: 'piko-5', title: 'Crussin', artist: 'Piko FG', url: `${R2_BASE}/Crussin.mp3` },
+  { id: 'piko-6', title: 'Dejate Llevar', artist: 'Piko FG', url: `${R2_BASE}/Dejate%20Llevar.mp3` },
+  { id: 'piko-7', title: 'El Don', artist: 'Piko FG', url: `${R2_BASE}/El%20Don.mp3` },
+  { id: 'piko-8', title: 'Entre Humos', artist: 'Piko FG', url: `${R2_BASE}/Entre%20Humos.mp3` },
+  { id: 'piko-9', title: 'F-7', artist: 'Piko FG', url: `${R2_BASE}/F-7.mp3` },
+  { id: 'piko-10', title: 'Falle', artist: 'Piko FG', url: `${R2_BASE}/Falle.mp3` },
+  { id: 'piko-11', title: 'Ganja', artist: 'Piko FG', url: `${R2_BASE}/Ganja.mp3` },
+  { id: 'piko-12', title: 'Gunster', artist: 'Piko FG', url: `${R2_BASE}/Gunster.mp3` },
+  { id: 'piko-13', title: 'Im Sorry', artist: 'Piko FG', url: `${R2_BASE}/Im%20Sorry.mp3` },
+  { id: 'piko-14', title: 'Jardin De Rosas', artist: 'Piko FG', url: `${R2_BASE}/Jardin%20De%20Rosas.mp3` },
+  { id: 'piko-15', title: 'Los 5', artist: 'Piko FG', url: `${R2_BASE}/Los%205.mp3` },
+  { id: 'piko-16', title: 'Me Cuentan', artist: 'Piko FG', url: `${R2_BASE}/Me%20Cuentan.mp3` },
+  { id: 'piko-17', title: 'Noches Enteras', artist: 'Piko FG', url: `${R2_BASE}/Noches%20Enteras.mp3` },
+  { id: 'piko-18', title: 'Party', artist: 'Piko FG', url: `${R2_BASE}/Party.mp3` },
+  { id: 'piko-19', title: 'Quejas', artist: 'Piko FG', url: `${R2_BASE}/Quejas.mp3` },
+  { id: 'piko-20', title: 'Sentimientos', artist: 'Piko FG', url: `${R2_BASE}/Sentimientos.mp3` },
+  { id: 'piko-21', title: 'Sin Rencores', artist: 'Piko FG', url: `${R2_BASE}/Sin%20Rencores.mp3` },
+  { id: 'piko-22', title: 'Te Perdi', artist: 'Piko FG', url: `${R2_BASE}/Te%20Perdi.mp3` },
+  { id: 'piko-23', title: 'Te Prometo', artist: 'Piko FG', url: `${R2_BASE}/Te%20Prometo.mp3` },
+  { id: 'piko-24', title: 'Tortas De Jamon', artist: 'Piko FG', url: `${R2_BASE}/Tortas%20De%20Jamon.mp3` },
+  { id: 'piko-25', title: 'Un Dia Mas', artist: 'Piko FG', url: `${R2_BASE}/Un%20Dia%20Mas.mp3` }
+] as const;
+
+type PikoVaultTrack = (typeof PIKO_VAULT_TRACKS)[number];
+type CachedAnalysis = {
+  bpm: string;
+  duration: string;
+  overviewWaveform: number[];
+};
+
+const ANALYSIS_CACHE_PREFIX = 'piko-track-analysis-v1:';
+const pendingTrackKeys = new Set<string>();
 
 // Reusable decode context (main thread only). Workers cannot use Web Audio APIs.
 const decodeContext =
@@ -23,11 +53,14 @@ interface LibraryState {
   processingTracks: { id: string; name: string }[];
   isProcessingQueue: boolean;
   queueProgress: string;
+  isVaultSyncActive: boolean;
+  vaultReadyCount: number;
+  vaultTotalCount: number;
   loadTracks: () => Promise<void>;
   addTrack: (file: File) => Promise<void>;
   seedLibrary: () => Promise<void>;
   queueFilesForIngestion: (files: File[]) => Promise<void>;
-  loadFromCloud: (cloudTracks: typeof PIKO_VAULT_TRACKS) => Promise<void>;
+  loadPikoVault: (cloudTracks?: readonly PikoVaultTrack[]) => Promise<void>;
 }
 
 const mockAnalysis = async (file: File | string) => {
@@ -85,6 +118,83 @@ const formatDuration = (seconds: number) => {
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 };
+
+const toAnalysisCacheKey = (key: string) => `${ANALYSIS_CACHE_PREFIX}${key}`;
+
+const readCachedAnalysis = (key: string): CachedAnalysis | null => {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(toAnalysisCacheKey(key));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CachedAnalysis;
+    if (!Array.isArray(parsed.overviewWaveform)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedAnalysis = (key: string, analysis: CachedAnalysis) => {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(toAnalysisCacheKey(key), JSON.stringify(analysis));
+  } catch {
+    // Ignore storage quota errors; analysis still lives in IndexedDB.
+  }
+};
+
+const trackIdentityMatches = (
+  track: Track,
+  candidate: Partial<Pick<Track, 'id' | 'sourceId' | 'audioUrl'>>
+) => {
+  if (candidate.id !== undefined && track.id === candidate.id) return true;
+  if (candidate.sourceId && track.sourceId === candidate.sourceId) return true;
+  if (candidate.audioUrl && track.audioUrl === candidate.audioUrl) return true;
+  return false;
+};
+
+const dedupeVisibleTracks = (tracks: Track[]) => {
+  const seen = new Set<string>();
+
+  return tracks.filter((track) => {
+    const key = track.audioUrl
+      ? `url:${track.audioUrl}`
+      : track.sourceId
+        ? `source:${track.sourceId}`
+        : track.id !== undefined
+          ? `id:${track.id}`
+          : null;
+
+    if (!key) return true;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+};
+
+const getFileSourceId = (file: File) => `file:${file.name}:${file.size}:${file.lastModified}`;
+const getCloudSourceId = (track: PikoVaultTrack) => `vault:${track.id}`;
+const getVaultTrackIds = (cloudTracks: readonly PikoVaultTrack[]) => new Set(cloudTracks.map((track) => getCloudSourceId(track)));
+
+const countVaultReadyTracks = (tracks: Track[], cloudTracks: readonly PikoVaultTrack[]) => {
+  const vaultIds = getVaultTrackIds(cloudTracks);
+  return tracks.filter((track) => track.sourceId && vaultIds.has(track.sourceId)).length;
+};
+
+const buildTrackFromAnalysis = (
+  partial: Pick<Track, 'title' | 'artist' | 'audioUrl' | 'fileBlob' | 'artworkUrl' | 'createdAt' | 'sourceId'>,
+  analysis: CachedAnalysis
+): Track => ({
+  ...partial,
+  bpm: analysis.bpm,
+  key: '--',
+  duration: analysis.duration,
+  energy: 'Medium',
+  hasVocal: false,
+  overviewWaveform: analysis.overviewWaveform,
+});
 
 // Helper to wrap the worker postMessage in a Promise
 const analyzeAudio = (payload: { id: string; channelData: Float32Array; sampleRate: number; duration: number }): Promise<AnalysisResponse> => {
@@ -158,9 +268,17 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   processingTracks: [],
   isProcessingQueue: false,
   queueProgress: '',
+  isVaultSyncActive: false,
+  vaultReadyCount: 0,
+  vaultTotalCount: PIKO_VAULT_TRACKS.length,
   loadTracks: async () => {
     const tracks = await db.tracks.orderBy('createdAt').reverse().toArray();
-    set({ tracks });
+    const dedupedTracks = dedupeVisibleTracks(tracks);
+    set({
+      tracks: dedupedTracks,
+      vaultReadyCount: countVaultReadyTracks(dedupedTracks, PIKO_VAULT_TRACKS),
+      vaultTotalCount: PIKO_VAULT_TRACKS.length,
+    });
   },
 
   queueFilesForIngestion: async (files: File[]) => {
@@ -170,51 +288,69 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
 
     const audioFiles = files.filter(f => f.type.startsWith('audio/') || /\.(mp3|wav|flac|m4a)$/i.test(f.name));
+    const existingTracks = get().tracks;
+    const uniqueFiles = audioFiles.filter((file) => {
+      const sourceId = getFileSourceId(file);
+      if (pendingTrackKeys.has(sourceId)) return false;
+      return !existingTracks.some((track) => trackIdentityMatches(track, { sourceId }));
+    });
 
     if (audioFiles.length === 0) {
       toast.error("No valid audio files found in selection.");
       return;
     }
 
-    set({ isProcessingQueue: true, queueProgress: `Preparing ${audioFiles.length} files...` });
+    if (uniqueFiles.length === 0) {
+      toast('All selected files are already in the library.');
+      return;
+    }
+
+    set({ isProcessingQueue: true, queueProgress: `Preparing ${uniqueFiles.length} files...` });
 
     let successCount = 0;
-    const total = audioFiles.length;
+    const total = uniqueFiles.length;
 
     for (let i = 0; i < total; i++) {
-        const file = audioFiles[i];
+        const file = uniqueFiles[i];
+        const sourceId = getFileSourceId(file);
         set({ queueProgress: `Analyzing ${i + 1} of ${total}: ${file.name}` });
+        pendingTrackKeys.add(sourceId);
 
         try {
-          const arrayBuffer = await file.arrayBuffer();
-          const decoded = await decodeToMonoChannelData(arrayBuffer);
-          const res = await analyzeAudio({ id: crypto.randomUUID(), ...decoded });
-
           const artworkUrl = URL.createObjectURL(file);
+          let resolvedAnalysis = readCachedAnalysis(sourceId);
+          if (!resolvedAnalysis) {
+            const arrayBuffer = await file.arrayBuffer();
+            const decoded = await decodeToMonoChannelData(arrayBuffer);
+            const res = await analyzeAudio({ id: crypto.randomUUID(), ...decoded });
+            resolvedAnalysis = {
+              bpm: res.bpm.toString(),
+              duration: formatDuration(res.duration),
+              overviewWaveform: Array.from(res.overviewPeaks),
+            };
+            writeCachedAnalysis(sourceId, resolvedAnalysis);
+          }
 
-          const newTrack: Track = {
+          const newTrack = buildTrackFromAnalysis({
             title: file.name.replace(/\.[^/.]+$/, ""),
             artist: 'Unknown Artist',
-            bpm: res.bpm.toString(),
-            key: '--',
-            duration: formatDuration(res.duration),
-            energy: "Medium", // Algorithm pending
-            hasVocal: false, // Algorithm pending
+            sourceId,
             fileBlob: file,
             artworkUrl,
-            overviewWaveform: Array.from(res.overviewPeaks),
             createdAt: Date.now(),
-          };
+          }, resolvedAnalysis);
 
           const id = await db.tracks.add(newTrack);
           newTrack.id = id;
 
           set(state => ({
-            tracks: [newTrack, ...state.tracks]
+            tracks: dedupeVisibleTracks([newTrack, ...state.tracks])
           }));
           successCount++;
         } catch (err) {
             console.error(`Failed to ingest ${file.name}:`, err);
+        } finally {
+            pendingTrackKeys.delete(sourceId);
         }
         await yieldToUi();
     }
@@ -286,6 +422,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         let artist = 'Pre-existing Track';
 
         const newTrack: Track = {
+          sourceId: `seed:${track.url}`,
           title,
           artist,
           bpm: analysis.bpm,
@@ -302,7 +439,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
         newTrack.id = id;
 
         set(state => ({
-          tracks: [...state.tracks, newTrack].sort((a, b) => b.createdAt - a.createdAt)
+          tracks: dedupeVisibleTracks([...state.tracks, newTrack].sort((a, b) => b.createdAt - a.createdAt))
         }));
       } catch (error) {
         console.error(`Failed to seed ${track.name}`, error);
@@ -318,7 +455,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     await get().loadTracks();
   },
 
-  loadFromCloud: async (cloudTracks) => {
+  loadPikoVault: async (cloudTracks = PIKO_VAULT_TRACKS) => {
     if (get().isProcessingQueue) {
       toast.error('A queue is already processing. Please wait.');
       return;
@@ -329,48 +466,90 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       return;
     }
 
-    set({ isProcessingQueue: true, queueProgress: `Fetching ${cloudTracks.length} cloud track(s)...` });
+    const existingTracks = get().tracks;
+    const existingPersistedTracks = await db.tracks.where('audioUrl').anyOf(cloudTracks.map((track) => track.url)).toArray();
+    const existingTrackIndex = dedupeVisibleTracks([...existingTracks, ...existingPersistedTracks]);
+    pendingTrackKeys.clear();
+
+    const tracksToLoad = cloudTracks.filter((track) => {
+      const sourceId = getCloudSourceId(track);
+      return !existingTrackIndex.some((existing) => trackIdentityMatches(existing, { sourceId, audioUrl: track.url }));
+    });
+
+    set({
+      isVaultSyncActive: true,
+      vaultReadyCount: countVaultReadyTracks(existingTrackIndex, cloudTracks),
+      vaultTotalCount: cloudTracks.length,
+    });
+
+    if (tracksToLoad.length === 0) {
+      toast('Piko Vault is already fully synced.');
+      set({
+        processingTracks: [],
+        isVaultSyncActive: false,
+      });
+      return;
+    }
+
+    set({
+      isProcessingQueue: true,
+      queueProgress: `Fetching ${tracksToLoad.length} cloud track(s)...`,
+      processingTracks: [],
+    });
 
     let successCount = 0;
 
-    for (let i = 0; i < cloudTracks.length; i++) {
-      const track = cloudTracks[i];
+    for (let i = 0; i < tracksToLoad.length; i++) {
+      const track = tracksToLoad[i];
+      const sourceId = getCloudSourceId(track);
+      if (pendingTrackKeys.has(sourceId)) continue;
+      pendingTrackKeys.add(sourceId);
       const tempId = `${track.id}-${Date.now()}`;
       set(state => ({
         processingTracks: [...state.processingTracks, { id: tempId, name: track.title }]
       }));
 
       try {
-        set({ queueProgress: `Downloading & analyzing ${i + 1} of ${cloudTracks.length}: ${track.title}` });
-        const arrayBuffer = await fetchArrayBufferStrict(track.url);
-        const decoded = await decodeToMonoChannelData(arrayBuffer);
-        const res = await analyzeAudio({ id: track.id, ...decoded });
+        const cachedAnalysis = readCachedAnalysis(sourceId);
+        let analysis = cachedAnalysis;
 
-        const newTrack: Track = {
+        if (!analysis) {
+          set({ queueProgress: `Downloading & analyzing ${i + 1} of ${tracksToLoad.length}: ${track.title}` });
+          const arrayBuffer = await fetchArrayBufferStrict(track.url);
+          const decoded = await decodeToMonoChannelData(arrayBuffer);
+          const res = await analyzeAudio({ id: track.id, ...decoded });
+          analysis = {
+            bpm: res.bpm.toString(),
+            duration: formatDuration(res.duration),
+            overviewWaveform: Array.from(res.overviewPeaks),
+          };
+          writeCachedAnalysis(sourceId, analysis);
+        } else {
+          set({ queueProgress: `Syncing ${i + 1} of ${tracksToLoad.length}: ${track.title}` });
+        }
+
+        const newTrack = buildTrackFromAnalysis({
+          sourceId,
           title: track.title,
           artist: track.artist || 'Unknown Artist',
-          bpm: res.bpm.toString(),
-          key: '--',
-          duration: formatDuration(res.duration),
-          energy: "Medium", // Placeholder until energy analysis exists
-          hasVocal: false,  // Placeholder until vocal detection exists
           audioUrl: track.url,
           artworkUrl: pickRandomArtworkUrl(),
-          overviewWaveform: Array.from(res.overviewPeaks),
           createdAt: Date.now(),
-        };
+        }, analysis);
 
         const id = await db.tracks.add(newTrack);
         newTrack.id = id;
 
         set(state => ({
-          tracks: [newTrack, ...state.tracks],
+          tracks: dedupeVisibleTracks([newTrack, ...state.tracks]),
+          vaultReadyCount: Math.min(state.vaultReadyCount + 1, cloudTracks.length),
         }));
         successCount++;
       } catch (error) {
         console.error(`Failed to ingest cloud track ${track.title}:`, error);
         toast.error(`Failed to ingest ${track.title}`);
       } finally {
+        pendingTrackKeys.delete(sourceId);
         set(state => ({
           processingTracks: state.processingTracks.filter(t => t.id !== tempId)
         }));
@@ -378,14 +557,27 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       }
     }
 
-    set({ isProcessingQueue: false, queueProgress: '' });
+    const refreshedTracks = dedupeVisibleTracks(await db.tracks.orderBy('createdAt').reverse().toArray());
+    set({
+      isProcessingQueue: false,
+      queueProgress: '',
+      isVaultSyncActive: false,
+      tracks: refreshedTracks,
+      vaultReadyCount: countVaultReadyTracks(refreshedTracks, cloudTracks),
+      vaultTotalCount: cloudTracks.length,
+    });
     if (successCount > 0) {
       toast.success(`Imported ${successCount} cloud track${successCount > 1 ? 's' : ''}.`);
     }
   },
 
   addTrack: async (file: File) => {
-    // Legacy single-file ingest path; keep behavior consistent with the queue.
+    const sourceId = getFileSourceId(file);
+    const duplicateInState = get().tracks.some((track) =>
+      trackIdentityMatches(track, { sourceId, audioUrl: track.audioUrl })
+    );
+    if (duplicateInState) return;
+
     await get().queueFilesForIngestion([file]);
   }
 }));

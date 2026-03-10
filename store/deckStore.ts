@@ -22,6 +22,7 @@ interface DeckStore {
   setVolume: (deckId: 'A' | 'B', volume: number) => void;
   setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
   toggleSync: (deckId: 'A' | 'B') => void;
+  setCurrentTime: (deckId: 'A' | 'B', time: number) => void;
 }
 
 const initialDeckState: DeckState = {
@@ -97,6 +98,13 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
     const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
     set((state) => ({
       [deckKey]: { ...state[deckKey], pitchPercent }
+    }));
+  },
+
+  setCurrentTime: (deckId: 'A' | 'B', time: number) => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    set((state) => ({
+      [deckKey]: { ...state[deckKey], currentTime: time }
     }));
   },
 

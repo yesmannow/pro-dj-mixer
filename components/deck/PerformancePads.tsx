@@ -1,114 +1,126 @@
-import { Drum, Flame, Music2, Waves } from 'lucide-react';
+import { useState } from 'react';
+import { motion } from 'motion/react';
 import { clsx } from 'clsx';
-import type { MouseEvent, ReactNode } from 'react';
-
-type StemType = 'drums' | 'inst' | 'vocals';
 
 interface CuePointView {
   slot: number;
+  time: number;
 }
 
 interface PerformancePadsProps {
-  isRight: boolean;
+  deckId: 'A' | 'B';
   cuePoints: CuePointView[];
-  mutedStems: Record<StemType, boolean>;
-  onToggleStem: (stem: StemType) => void;
-  onCueClick: (slot: number) => void;
-  onCueRightClick: (event: MouseEvent, slot: number) => void;
+  shiftHeld: boolean;
+  pressedSlots: Set<number>;
+  onPadHold: (slot: number) => void;
+  onPadRelease: (slot: number) => void;
+  onClearCue: (slot: number) => void;
+  onAutoGenerate: () => void;
 }
 
-const stemBySlot: Partial<Record<number, StemType>> = {
-  1: 'drums',
-  2: 'inst',
-  3: 'vocals'
-};
-
-const getStemLabel = (stemType: StemType) => {
-  if (stemType === 'drums') return 'DRUMS';
-  if (stemType === 'inst') return 'INST';
-  return 'VOCALS';
-};
-
-const getIconBySlot = (slot: number) => {
-  if (slot === 5) return <Music2 className="w-4 h-4 opacity-20" />;
-  if (slot === 6) return <Waves className="w-4 h-4 opacity-20" />;
-  if (slot === 7) return <Flame className="w-4 h-4 opacity-20" />;
-  if (slot === 8) return <Drum className="w-4 h-4 opacity-20" />;
-  return <span className="text-[10px] font-bold opacity-20">{slot}</span>;
-};
-
-const getLitPadClasses = (isRight: boolean) =>
-  isRight
-    ? 'bg-deck-b text-slate-950 border-deck-b/50 shadow-[0_0_15px_rgba(225,29,72,0.35)]'
-    : 'bg-deck-a text-slate-950 border-deck-a/50 shadow-[0_0_15px_rgba(212,175,55,0.35)]';
-
-const getPadClasses = (isRight: boolean, isStemPad: boolean, isStemMuted: boolean, isCueActive: boolean) => {
-  if (isStemPad) {
-    if (isStemMuted) {
-      return 'bg-slate-800 border-slate-900 text-slate-500 opacity-30';
-    }
-    return getLitPadClasses(isRight);
-  }
-
-  if (isCueActive) {
-    return getLitPadClasses(isRight);
-  }
-
-  return 'bg-slate-900/70 border-slate-800 text-slate-400 hover:bg-slate-800';
+const keyLabels: Record<'A' | 'B', string[]> = {
+  A: ['1', '2', '3', '4', '5', '6', '7', '8'],
+  B: ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I'],
 };
 
 export function PerformancePads({
-  isRight,
+  deckId,
   cuePoints,
-  mutedStems,
-  onToggleStem,
-  onCueClick,
-  onCueRightClick
+  shiftHeld,
+  pressedSlots,
+  onPadHold,
+  onPadRelease,
+  onClearCue,
+  onAutoGenerate,
 }: Readonly<PerformancePadsProps>) {
+  const labelSet = keyLabels[deckId];
+  const [pointerPressed, setPointerPressed] = useState<Set<number>>(new Set());
+
   return (
-    <div className="grid grid-cols-4 gap-2">
-      {[1, 2, 3, 4, 5, 6, 7, 8].map((slot) => {
-        const stemType = stemBySlot[slot];
-        const isStemPad = Boolean(stemType);
-        const isCueActive = cuePoints.some((cuePoint) => cuePoint.slot === slot);
-        const isStemMuted = stemType ? mutedStems[stemType] : false;
-        const padClasses = getPadClasses(isRight, isStemPad, isStemMuted, isCueActive);
+    <div className="flex flex-col gap-3">
+      <button
+        type="button"
+        className="w-full h-10 rounded-md border border-[#2a2a2a] bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] text-[11px] font-black tracking-widest text-slate-200 shadow-[0_4px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] active:translate-y-[1px] active:shadow-[0_2px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] transition-all"
+        onClick={onAutoGenerate}
+      >
+        AUTO 16-BAR
+      </button>
 
-        let content: ReactNode = getIconBySlot(slot);
-        if (stemType) {
-          content = <span className="text-[10px] font-black">{getStemLabel(stemType)}</span>;
-        } else if (isCueActive) {
-          content = <span className="text-[10px] font-black">{slot}</span>;
-        }
+      <div className="mpc-grid-container grid grid-cols-4 gap-2">
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((slot) => {
+          const cue = cuePoints.find((c) => c.slot === slot);
+          const isActive = Boolean(cue);
+          const label = labelSet[slot] ?? '';
+          const isPressed = pressedSlots.has(slot) || pointerPressed.has(slot);
 
-        return (
-          <button
-            key={slot}
-            type="button"
-            className={clsx(
-              'shrink-0 h-12 rounded-md border-b-4 shadow-inner flex flex-col items-center justify-center cursor-pointer active:border-b-0 active:translate-y-1 transition-all touch-none select-none',
-              padClasses
-            )}
-            onPointerDown={() => {
-              if (stemType) {
-                onToggleStem(stemType);
-              }
-            }}
-            onClick={() => {
-              if (!isStemPad) {
-                onCueClick(slot);
-              }
-            }}
-            onContextMenu={(event) => {
-              if (!isStemPad) {
-                onCueRightClick(event, slot);
-              }
-            }}
-          >
-            {content}
-          </button>
-        );
-      })}
+          const padClasses = clsx(
+            'mpc-pad relative overflow-hidden touch-none select-none focus:outline-none',
+            deckId === 'A' ? 'mpc-pad-set-A' : 'mpc-pad-set-B',
+            isPressed && 'mpc-pad-pressed',
+            shiftHeld && isActive && 'del-mode'
+          );
+
+          return (
+            <motion.button
+              key={slot}
+              type="button"
+              whileTap={{ scale: 0.95 }}
+              className={padClasses}
+              onPointerDown={(e) => {
+                e.preventDefault();
+                setPointerPressed((prev) => {
+                  const next = new Set(prev);
+                  next.add(slot);
+                  return next;
+                });
+                if (shiftHeld) {
+                  if (isActive) onClearCue(slot);
+                  return;
+                }
+                onPadHold(slot);
+              }}
+              onPointerUp={(e) => {
+                e.preventDefault();
+                setPointerPressed((prev) => {
+                  const next = new Set(prev);
+                  next.delete(slot);
+                  return next;
+                });
+                if (shiftHeld) return;
+                onPadRelease(slot);
+              }}
+              onPointerLeave={() => {
+                setPointerPressed((prev) => {
+                  const next = new Set(prev);
+                  next.delete(slot);
+                  return next;
+                });
+                if (!shiftHeld) onPadRelease(slot);
+              }}
+              onPointerCancel={() => {
+                setPointerPressed((prev) => {
+                  const next = new Set(prev);
+                  next.delete(slot);
+                  return next;
+                });
+                if (!shiftHeld) onPadRelease(slot);
+              }}
+            >
+              <span className="absolute top-1 left-1 text-[8px] uppercase tracking-[0.12em] text-gray-600">
+                {label}
+              </span>
+              {shiftHeld && isActive ? (
+                <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-red-200">DEL</span>
+              ) : (
+                <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-slate-200">
+                  {isActive ? `CUE ${slot}` : 'EMPTY'}
+                </span>
+              )}
+              <div className="absolute bottom-1 right-1 text-[8px] text-gray-500">{slot}</div>
+            </motion.button>
+          );
+        })}
+      </div>
     </div>
   );
 }

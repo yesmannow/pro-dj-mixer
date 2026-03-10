@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db, CuePoint } from '@/lib/db';
+import { useDeckStore } from '@/store/deckStore';
 
 interface TrackCueState {
   // Cache of cue points indexed by trackId
@@ -10,6 +11,7 @@ interface TrackCueState {
   loadCues: (trackId: number) => Promise<void>;
   setCue: (trackId: number, slot: number, time: number, type: 'hot' | 'memory') => Promise<void>;
   clearCue: (trackId: number, slot: number) => Promise<void>;
+  autoGenerateCues: (deckId: 'A' | 'B', bpm: number) => Promise<void>;
   getCues: (trackId: number) => CuePoint[];
 }
 
@@ -79,6 +81,27 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
     } catch (error) {
       console.error(`Failed to clear cue for track ${trackId} slot ${slot}:`, error);
     }
+  },
+
+  autoGenerateCues: async (deckId: 'A' | 'B', bpm: number) => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    const trackId = useDeckStore.getState()[deckKey].track?.id;
+    if (!trackId) return;
+
+    const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+    const secondsPerBeat = 60 / safeBpm;
+
+    const cues = get().getCues(trackId);
+    const cueZero = cues.find((c) => c.slot === 0);
+    const cueZeroTime = cueZero ? cueZero.time : 0;
+
+    const tasks: Promise<any>[] = [];
+    for (let i = 1; i <= 7; i++) {
+      const time = cueZeroTime + i * 64 * secondsPerBeat;
+      tasks.push(get().setCue(trackId, i, time, 'hot'));
+    }
+
+    await Promise.all(tasks);
   },
 
   getCues: (trackId: number) => {

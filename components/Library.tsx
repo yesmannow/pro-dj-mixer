@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2 } from 'lucide-react';
+import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import { PIKO_VAULT_TRACKS, useLibraryStore } from '@/store/libraryStore';
@@ -11,15 +12,30 @@ import { useCueStore } from '@/store/cueStore';
 import { useCrateStore } from '@/store/crateStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
+import type { Track } from '@/lib/db';
+import { useShallow } from 'zustand/react/shallow';
 
 export function Library() {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [isSmartMatchEnabled, setIsSmartMatchEnabled] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
+  const [holdVaultHud, setHoldVaultHud] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
 
-  const { tracks, processingTracks, loadTracks, seedLibrary, queueFilesForIngestion, loadFromCloud, isProcessingQueue, queueProgress } = useLibraryStore();
+  const {
+    tracks,
+    processingTracks,
+    loadTracks,
+    seedLibrary,
+    queueFilesForIngestion,
+    loadPikoVault,
+    isProcessingQueue,
+    queueProgress,
+    isVaultSyncActive,
+    vaultReadyCount,
+    vaultTotalCount,
+  } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
@@ -30,13 +46,22 @@ export function Library() {
     createCrate,
     deleteCrate,
     addTrackToCrate,
-    removeTrackFromCrate,
     setActiveCrate
   } = useCrateStore();
   const { history, loadHistory, addToHistory, clearHistory } = useHistoryStore();
 
-  const deckA = useDeckStore(state => state.deckA);
-  const deckB = useDeckStore(state => state.deckB);
+  const deckA = useDeckStore(
+    useShallow((state) => ({
+      isPlaying: state.deckA.isPlaying,
+      track: state.deckA.track,
+    }))
+  );
+  const deckB = useDeckStore(
+    useShallow((state) => ({
+      isPlaying: state.deckB.isPlaying,
+      track: state.deckB.track,
+    }))
+  );
 
   const masterDeck = deckA.isPlaying ? deckA : (deckB.isPlaying ? deckB : deckA);
 
@@ -109,6 +134,15 @@ export function Library() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (isVaultSyncActive || !holdVaultHud) {
+      return undefined;
+    }
+
+    const timeout = window.setTimeout(() => setHoldVaultHud(false), 700);
+    return () => window.clearTimeout(timeout);
+  }, [holdVaultHud, isVaultSyncActive, vaultReadyCount, vaultTotalCount]);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -139,10 +173,13 @@ export function Library() {
     toast.success(`Crate "${newCrateName}" created`);
   };
 
-  const handleTrackDragStart = (e: React.DragEvent, track: any) => {
+  const handleTrackDragStart = (e: React.DragEvent, track: Track) => {
     e.dataTransfer.setData('application/json', JSON.stringify(track));
     e.dataTransfer.effectAllowed = 'copy';
   };
+
+  const vaultProgress = vaultTotalCount > 0 ? Math.min(100, (vaultReadyCount / vaultTotalCount) * 100) : 0;
+  const showVaultHud = isVaultSyncActive || holdVaultHud;
 
   return (
     <div
@@ -161,6 +198,36 @@ export function Library() {
           <p className="text-slate-300 mt-2">MP3, WAV, FLAC supported</p>
         </div>
       )}
+
+      <AnimatePresence>
+        {showVaultHud && (
+          <motion.div
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className="mx-4 mt-4 rounded-xl border border-white/10 bg-white/10 px-4 py-3 shadow-[0_18px_40px_rgba(0,0,0,0.25)] backdrop-blur-xl"
+          >
+            <div className="mb-2 flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-[#E11D48]">System Ingest</p>
+                <p className="text-xs text-slate-300">Piko R2 Vault sync in progress</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-black tabular-nums text-white">{vaultReadyCount}/{vaultTotalCount}</p>
+                <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500">Tracks ready</p>
+              </div>
+            </div>
+            <div className="h-2.5 overflow-hidden rounded-full bg-black/30 ring-1 ring-white/10">
+              <motion.div
+                className="h-full rounded-full bg-[#E11D48]"
+                animate={{ width: `${vaultProgress}%` }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+              />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20">
         <div className="flex gap-4 items-center overflow-x-auto no-scrollbar">
@@ -228,7 +295,10 @@ export function Library() {
             ADD MUSIC
           </button>
           <button
-            onClick={() => loadFromCloud(PIKO_VAULT_TRACKS)}
+            onClick={() => {
+              setHoldVaultHud(true);
+              void loadPikoVault(PIKO_VAULT_TRACKS);
+            }}
             className="px-4 py-2 bg-studio-gold text-studio-black font-heading font-bold rounded hover:bg-yellow-500 transition-colors shrink-0"
           >
             LOAD VAULT

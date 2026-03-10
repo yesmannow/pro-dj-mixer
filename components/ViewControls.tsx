@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { PanelTop, PanelRight, PanelBottom, Settings } from 'lucide-react';
+import { PanelTop, PanelBottom, Settings } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useUIStore } from '@/store/uiStore';
 
@@ -10,10 +10,8 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 export function ViewControls() {
   const {
     isWaveformVisible,
-    isFxDockVisible,
     isLibraryVisible,
     toggleWaveform,
-    toggleFxDock,
     toggleLibrary
   } = useUIStore();
 
@@ -48,21 +46,6 @@ export function ViewControls() {
           title="Toggle Library"
         >
           <PanelBottom className="w-4 h-4" />
-        </button>
-
-        <div className="w-px h-4 bg-slate-700 mx-1"></div>
-
-        <button
-          onClick={toggleFxDock}
-          className={clsx(
-            "p-1.5 rounded-full transition-all duration-300",
-            isFxDockVisible
-              ? "text-accent neon-text-glow bg-accent/10"
-              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-          )}
-          title="Toggle FX Dock"
-        >
-          <PanelRight className="w-4 h-4" />
         </button>
 
         <div className="w-px h-4 bg-slate-700 mx-1"></div>

@@ -1,0 +1,106 @@
+import { useState, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+
+type FxType = 'filter' | 'echo' | 'crush';
+
+interface FXRackProps {
+  deckId: 'A' | 'B';
+  onFxChange: (type: FxType, val: number) => void;
+}
+
+interface FXKnobProps {
+  label: string;
+  value: number;
+  color: string;
+  defaultValue: number;
+  onChange: (val: number) => void;
+  onKill: () => void;
+}
+
+export function FXRack({ deckId, onFxChange }: FXRackProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeFx, setActiveFx] = useState({ filter: 50, echo: 0, crush: 0 });
+
+  const updateFx = useCallback((type: FxType, val: number) => {
+    const clamped = Math.max(0, Math.min(100, val));
+    setActiveFx((prev) => ({ ...prev, [type]: clamped }));
+    onFxChange(type, clamped);
+  }, [onFxChange]);
+
+  const killFx = useCallback((type: FxType, defaultVal: number) => {
+    updateFx(type, defaultVal);
+  }, [updateFx]);
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full flex items-center justify-between rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-left text-slate-200 backdrop-blur-lg shadow-lg hover:border-white/20 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_rgba(56,189,248,0.7)]" />
+          <div className="text-xs font-semibold tracking-[0.2em] uppercase">Deck {deckId} FX</div>
+        </div>
+        <span className="text-[11px] text-slate-400">{isOpen ? 'Hide' : 'Show'}</span>
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="overflow-hidden bg-studio-black/90 backdrop-blur-xl border-x border-b border-[#333333] rounded-b-xl shadow-2xl mt-1"
+          >
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <FXKnob label="Wash" value={activeFx.filter} onChange={(v) => updateFx('filter', v)} onKill={() => killFx('filter', 50)} color="#D4AF37" defaultValue={50} />
+              <FXKnob label="Echo" value={activeFx.echo} onChange={(v) => updateFx('echo', v)} onKill={() => killFx('echo', 0)} color="#38BDF8" defaultValue={0} />
+              <FXKnob label="Crush" value={activeFx.crush} onChange={(v) => updateFx('crush', v)} onKill={() => killFx('crush', 0)} color="#E11D48" defaultValue={0} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+function FXKnob({ label, value, onChange, onKill, color, defaultValue }: FXKnobProps) {
+  const percent = Math.round(value);
+
+  return (
+    <div className="flex flex-col gap-3 rounded-lg bg-white/5 border border-white/10 p-3 shadow-inner backdrop-blur-lg">
+      <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-300">
+        <span>{label}</span>
+        <span className="font-mono text-slate-400">{percent}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="w-full accent-white"
+          style={{
+            accentColor: color
+          }}
+        />
+        <button
+          type="button"
+          onClick={onKill}
+          className="px-2 py-1 rounded-md border border-white/10 text-[10px] uppercase tracking-[0.2em] text-slate-300 hover:border-white/30 hover:text-white transition-colors"
+        >
+          Reset
+        </button>
+      </div>
+      <div className="h-1.5 w-full bg-black/40 rounded-full overflow-hidden">
+        <div className="h-full rounded-full" style={{ width: `${percent}%`, background: color }} />
+      </div>
+      <div className="text-[10px] text-slate-500">
+        Default {defaultValue}
+      </div>
+    </div>
+  );
+}

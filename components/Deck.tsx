@@ -2,30 +2,44 @@
 
 import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useState, useCallback, DragEvent, useRef, useEffect, useId } from 'react';
+import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
-import { useUIStore } from '@/store/uiStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
+import { usePerformanceKeys } from '@/hooks/usePerformanceKeys';
 import { OverviewWaveform } from '@/components/OverviewWaveform';
 import { PerformancePads } from '@/components/deck/PerformancePads';
 import { PitchFader } from '@/components/deck/PitchFader';
+import { FXRack } from '@/components/deck/FXRack';
+import { AudioEngine } from '@/lib/audioEngine';
+import type { Track } from '@/lib/db';
 
 interface DeckProps {
   deckId: 'A' | 'B';
 }
+
+const isTrackPayload = (value: unknown): value is Track => {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Partial<Track>;
+  return typeof candidate.title === 'string' && typeof candidate.artist === 'string' && typeof candidate.bpm === 'string';
+};
 
 export function Deck({ deckId }: Readonly<DeckProps>) {
   const isRight = deckId === 'B';
   const loadTrack = useDeckStore((state) => state.loadTrack);
   const setPitch = useDeckStore((state) => state.setPitch);
   const toggleSync = useDeckStore((state) => state.toggleSync);
-  const deckState = useDeckStore((state) => deckId === 'A' ? state.deckA : state.deckB);
+  const { pitchPercent, sync } = useDeckStore(
+    useShallow((state) => {
+      const deck = deckId === 'A' ? state.deckA : state.deckB;
+      return { pitchPercent: deck.pitchPercent, sync: deck.sync };
+    })
+  );
   const { tracks } = useLibraryStore();
-  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData, play, mutedStems, toggleStemMute } = useDeckAudio(deckId);
-  const { setCue, clearCue, loadCues, getCues } = useTrackCueStore();
-  const { autoPlayOnHotCue } = useUIStore();
+  const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
+  const { setCue, clearCue, loadCues, getCues, autoGenerateCues } = useTrackCueStore();
 
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -33,7 +47,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [scratchOffset, setScratchOffset] = useState(0);
 
-  const cuePoints = track?.id ? getCues(track.id) : [];
+  const cuePoints = useMemo(() => (track?.id ? getCues(track.id) : []), [getCues, track]);
 
   useEffect(() => {
     if (track?.id) {
@@ -42,36 +56,52 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   }, [track?.id, loadCues]);
 
   useEffect(() => {
+    AudioEngine.getInstance().createDeckFxBus(deckId);
+  }, [deckId]);
+
+  useEffect(() => {
     const frame = requestAnimationFrame(() => {
       setScratchOffset(0);
     });
     return () => cancelAnimationFrame(frame);
   }, [track?.id]);
 
-  const handleCueClick = async (slot: number) => {
+  const startStutterFromSlot = useCallback(async (slot: number) => {
     if (!track?.id) return;
+    const existing = cuePoints.find((c) => c.slot === slot);
+    const cueTime = existing ? existing.time : currentTime;
 
-    const existing = cuePoints.find(c => c.slot === slot);
-    if (existing) {
-      // Jump to cue
-      const delta = existing.time - currentTime;
-      scrubTrack(delta);
-
-      // Hot cue behavior: play if preference enabled
-      if (existing.type === 'hot' && !isPlaying && autoPlayOnHotCue) {
-        play();
-      }
-    } else {
-      // Set cue
-      await setCue(track.id, slot, currentTime, 'hot');
+    if (!existing) {
+      await setCue(track.id, slot, cueTime, 'hot');
     }
-  };
 
-  const handleCueRightClick = async (e: React.MouseEvent, slot: number) => {
-    e.preventDefault();
+    AudioEngine.getInstance().startStutter(deckId, cueTime);
+  }, [track, cuePoints, currentTime, deckId, setCue]);
+
+  const stopStutterFromSlot = useCallback((slot: number) => {
+    if (!track?.id) return;
+    const existing = cuePoints.find((c) => c.slot === slot);
+    const cueTime = existing ? existing.time : currentTime;
+    AudioEngine.getInstance().stopStutter(deckId, cueTime);
+  }, [track, cuePoints, currentTime, deckId]);
+
+  const clearCueSlot = useCallback(async (slot: number) => {
     if (!track?.id) return;
     await clearCue(track.id, slot);
-  };
+  }, [track, clearCue]);
+
+  const { shiftHeld, pressedSlots } = usePerformanceKeys({
+    deckId,
+    getCueTime: (slot) => {
+      const existing = cuePoints.find((c) => c.slot === slot);
+      return existing ? existing.time : null;
+    },
+    startStutter: (time) => AudioEngine.getInstance().startStutter(deckId, time),
+    stopStutter: (time) => AudioEngine.getInstance().stopStutter(deckId, time),
+    clearCue: (slot) => {
+      void clearCueSlot(slot);
+    },
+  });
 
   const tapTimesRef = useRef<number[]>([]);
   const jogWheelRef = useRef<HTMLButtonElement>(null);
@@ -226,8 +256,8 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
     const json = e.dataTransfer.getData('application/json');
     if (json) {
       try {
-        const droppedTrack = JSON.parse(json);
-        if (droppedTrack) {
+        const droppedTrack: unknown = JSON.parse(json);
+        if (isTrackPayload(droppedTrack)) {
           loadTrack(deckId, droppedTrack);
           setCurrentBpm(Number(droppedTrack.bpm) || 120);
         }
@@ -285,7 +315,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   } else if (isNudgingDown) {
     temporaryPitch = -5;
   }
-  const syncButtonClass = deckState.sync
+  const syncButtonClass = sync
     ? 'bg-studio-black border-studio-gold text-studio-gold shadow-[0_0_10px_#D4AF37]'
     : `bg-studio-slate border-studio-gold/30 text-slate-300 hover:${deckBorder} hover:${deckText}`;
   const playButtonClass = isPlaying
@@ -293,7 +323,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
     : `bg-studio-slate border-studio-gold/30 text-slate-300 hover:${deckBorder} hover:${deckText}`;
 
   const renderJogWheel = () => (
-    <div className="flex flex-col gap-4 items-center">
+    <div className="jogwheel-wrapper flex flex-col gap-4 items-center">
       <button
         type="button"
         ref={jogWheelRef}
@@ -353,7 +383,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
     <section
       ref={containerRef}
       className={clsx(
-        "bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
+        "deck-container bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-6 flex flex-col gap-4 transition-colors duration-300 touch-none select-none shadow-2xl transform",
         isDragOver
           ? "scale-[1.02] ring-2 ring-offset-0 ring-studio-gold border-transparent"
           : ""
@@ -404,8 +434,10 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
         </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row justify-between items-center gap-6 py-4">
-        {!isRight && renderJogWheel()}
+      <div className="flex flex-col xl:flex-row items-center gap-6 py-4">
+        <div className="flex-1 flex justify-center">
+          {renderJogWheel()}
+        </div>
 
         {/* Transport & Performance Pads */}
         <div className="flex flex-col gap-4 flex-1 w-full max-w-sm">
@@ -438,24 +470,29 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
 
           {/* Performance Pads 2x4 Grid */}
           <PerformancePads
-            isRight={isRight}
+            deckId={deckId}
             cuePoints={cuePoints}
-            mutedStems={mutedStems}
-            onToggleStem={toggleStemMute}
-            onCueClick={(slot) => {
-              void handleCueClick(slot);
+            shiftHeld={shiftHeld}
+            pressedSlots={pressedSlots}
+            onPadHold={(slot) => {
+              void startStutterFromSlot(slot);
             }}
-            onCueRightClick={(event, slot) => {
-              void handleCueRightClick(event, slot);
+            onPadRelease={stopStutterFromSlot}
+            onClearCue={(slot) => {
+              void clearCueSlot(slot);
+            }}
+            onAutoGenerate={() => {
+              const bpm = Number(track?.bpm) || 120;
+              void autoGenerateCues(deckId, bpm);
             }}
           />
         </div>
 
         {/* Pitch / Tempo Fader */}
         <PitchFader
-          pitchPercent={deckState.pitchPercent}
+          pitchPercent={pitchPercent}
           temporaryPitch={temporaryPitch}
-          isSynced={deckState.sync}
+          isSynced={sync}
           onPitchChange={(nextPitchPercent) => setPitch(deckId, nextPitchPercent)}
           onDisableSync={() => toggleSync(deckId)}
           onNudgeDownStart={handleNudgeDownStart}
@@ -463,9 +500,12 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
           onNudgeUpStart={handleNudgeUpStart}
           onNudgeUpEnd={handleNudgeUpEnd}
         />
-
-        {isRight && renderJogWheel()}
       </div>
+
+      <FXRack
+        deckId={deckId}
+        onFxChange={(type, val) => AudioEngine.getInstance().setDeckFX(deckId, type, val)}
+      />
     </section>
   );
 }
