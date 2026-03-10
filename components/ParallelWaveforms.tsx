@@ -38,31 +38,25 @@ export function ParallelWaveforms() {
     const unsubA = useDeckStore.subscribe(
       (state) => {
         const d = state.deckA;
-        return {
+        deckARef.current = {
           currentTime: d.currentTime,
           duration: d.duration,
           isPlaying: d.isPlaying,
           bpm: Number(d.track?.bpm) || 120,
           buffer: d.buffer,
         };
-      },
-      (val) => {
-        deckARef.current = val;
       }
     );
     const unsubB = useDeckStore.subscribe(
       (state) => {
         const d = state.deckB;
-        return {
+        deckBRef.current = {
           currentTime: d.currentTime,
           duration: d.duration,
           isPlaying: d.isPlaying,
           bpm: Number(d.track?.bpm) || 120,
           buffer: d.buffer,
         };
-      },
-      (val) => {
-        deckBRef.current = val;
       }
     );
 

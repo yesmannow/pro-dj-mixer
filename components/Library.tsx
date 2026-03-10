@@ -355,7 +355,11 @@ export function Library() {
                 <div className="px-4 py-6 text-xs text-slate-500">No tracks played yet.</div>
               ) : (
                 <div className="divide-y divide-slate-800/50">
-                  {history.map((item, idx) => (
+                  {history.map((item, idx) => {
+                    const historyIsMatch = isSmartMatchEnabled && masterDeck.track && item.track
+                      ? isSmartMatch(masterDeck.track.key, Number(masterDeck.track.bpm) || 120, item.track.key, Number(item.track.bpm) || 120)
+                      : false;
+                    return (
                     <div key={`history-${item.id ?? idx}`} className="flex items-center justify-between px-4 py-3 bg-slate-900/30 group">
                       <div className="min-w-0 flex items-center gap-3">
                         <span className="text-[10px] font-mono text-slate-600 w-4">{history.length - idx}</span>
@@ -370,7 +374,7 @@ export function Library() {
                           </div>
                         </div>
                       </div>
-                        <div className={clsx("flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity", isSmartMatchEnabled && masterDeck.track && !isMatch ? "opacity-0 pointer-events-none" : "")}>
+                        <div className={clsx("flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity", isSmartMatchEnabled && masterDeck.track && !historyIsMatch ? "opacity-0 pointer-events-none" : "")}>
                           <button
                             onClick={() => { if (item.track) useDeckStore.getState().loadTrack('A', item.track); toast.success('Loaded to Deck A'); }}
                             className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"
@@ -385,7 +389,8 @@ export function Library() {
                         </button>
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
