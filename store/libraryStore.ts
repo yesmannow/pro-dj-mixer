@@ -363,36 +363,12 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (isSeeding) return;
     isSeeding = true;
 
-    const seedTracks = [
-      { url: '/audio/12_05.mp3', name: '12_05.mp3' },
-      { url: '/audio/amor-sincero.mp3', name: 'amor-sincero.mp3' },
-      { url: '/audio/amores-perdidos.mp3', name: 'amores-perdidos.mp3' },
-      { url: '/audio/bungalow.mp3', name: 'bungalow.mp3' },
-      { url: '/audio/corazon-y-mente.mp3', name: 'corazon-y-mente.mp3' },
-      { url: '/audio/crussin.mp3', name: 'crussin.mp3' },
-      { url: '/audio/dejate-llevar.mp3', name: 'dejate-llevar.mp3' },
-      { url: '/audio/el-don.mp3', name: 'el-don.mp3' },
-      { url: '/audio/entre-humos.mp3', name: 'entre-humos.mp3' },
-      { url: '/audio/f-7.mp3', name: 'f-7.mp3' },
-      { url: '/audio/falle.mp3', name: 'falle.mp3' },
-      { url: '/audio/ganja.mp3', name: 'ganja.mp3' },
-      { url: '/audio/gunster.mp3', name: 'gunster.mp3' },
-      { url: '/audio/im-sorry.mp3', name: 'im-sorry.mp3' },
-      { url: '/audio/jardin-de-rosas.mp3', name: 'jardin-de-rosas.mp3' },
-      { url: '/audio/los-5.mp3', name: 'los-5.mp3' },
-      { url: '/audio/me-cuentan.mp3', name: 'me-cuentan.mp3' },
-      { url: '/audio/noches-enteras.mp3', name: 'noches-enteras.mp3' },
-      { url: '/audio/party.mp3', name: 'party.mp3' },
-      { url: '/audio/quejas.mp3', name: 'quejas.mp3' },
-      { url: '/audio/sentimientos.mp3', name: 'sentimientos.mp3' },
-      { url: '/audio/sin-rencores.mp3', name: 'sin-rencores.mp3' },
-      { url: '/audio/te-perdi.mp3', name: 'te-perdi.mp3' },
-      { url: '/audio/te-prometo.mp3', name: 'te-prometo.mp3' },
-      { url: '/audio/tortas-de-jamon.mp3', name: 'tortas-de-jamon.mp3' },
-      { url: '/audio/un-dia-mas.mp3', name: 'un-dia-mas.mp3' }
-    ];
+    const seedTracks = PIKO_VAULT_TRACKS;
 
-    const existingSeededTracks = await db.tracks.where('audioUrl').anyOf(seedTracks.map(t => t.url)).toArray();
+    const existingSeededTracks = await db.tracks
+      .where('audioUrl')
+      .anyOf(seedTracks.map(t => t.url))
+      .toArray();
     const existingByUrl = new Map(existingSeededTracks.filter(t => t.audioUrl).map(t => [t.audioUrl as string, t]));
 
     // Backfill missing artwork on existing seeded tracks
@@ -410,26 +386,41 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     for (const track of seedTracks) {
       if (existingByUrl.has(track.url)) continue;
 
-      const tempId = track.name + Date.now();
+      const tempId = track.id + Date.now();
       set(state => ({
-        processingTracks: [...state.processingTracks, { id: tempId, name: track.name }]
+        processingTracks: [...state.processingTracks, { id: tempId, name: track.title }]
       }));
 
       try {
-        const analysis = await mockAnalysis(track.name);
+        const sourceId = getCloudSourceId(track);
+        const cachedAnalysis = readCachedAnalysis(sourceId);
+        const analysis =
+          cachedAnalysis ??
+          (await (async () => {
+            const arrayBuffer = await fetchArrayBufferStrict(track.url);
+            const decoded = await decodeToMonoChannelData(arrayBuffer);
+            const res = await analyzeAudio({ id: track.id, ...decoded });
+            const built = {
+              bpm: res.bpm.toString(),
+              duration: formatDuration(res.duration),
+              overviewWaveform: Array.from(res.overviewPeaks),
+            };
+            writeCachedAnalysis(sourceId, built);
+            return built;
+          })());
 
-        let title = track.name.replace(/\.[^/.]+$/, "");
-        let artist = 'Pre-existing Track';
+        const title = track.title;
+        const artist = track.artist || 'Piko Vault';
 
         const newTrack: Track = {
-          sourceId: `seed:${track.url}`,
+          sourceId,
           title,
           artist,
           bpm: analysis.bpm,
-          key: analysis.key,
+          key: '--',
           duration: analysis.duration,
-          energy: analysis.energy,
-          hasVocal: analysis.hasVocal,
+          energy: "Medium",
+          hasVocal: false,
           audioUrl: track.url,
           artworkUrl: pickRandomArtworkUrl(),
           createdAt: Date.now(),
