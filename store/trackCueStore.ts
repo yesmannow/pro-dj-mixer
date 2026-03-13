@@ -14,7 +14,11 @@ const getCueTrackHash = (track: CueTrackRef) => {
   const source =
     track.sourceId ||
     track.audioUrl ||
-    `${track.title ?? 'untitled'}|${track.artist ?? 'unknown'}|${track.duration ?? '0:00'}|${track.id ?? 'pending'}`;
+    JSON.stringify({
+      title: track.title ?? 'untitled',
+      artist: track.artist ?? 'unknown',
+      id: track.id ?? 'pending',
+    });
 
   return `track:${source}`;
 };
@@ -112,7 +116,6 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
     const trackId = typeof track === 'number' ? track : track.id;
     const updatedAt = Date.now();
     const newCue: CuePoint = {
-      trackId: typeof trackId === 'number' ? trackId : -1,
       slot,
       time,
       type,
@@ -136,7 +139,7 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
       const existingLocal = get().getCues(track);
       const nextCues = normalizeCues([
         ...existingLocal.filter((cue) => cue.slot !== slot),
-        { ...newCue, trackId: typeof trackId === 'number' ? trackId : newCue.trackId },
+        { ...newCue, ...(typeof trackId === 'number' ? { trackId } : {}) },
       ]);
 
       writeLocalCues(track, nextCues);

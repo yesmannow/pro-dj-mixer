@@ -76,7 +76,8 @@ export class AudioEngine {
     input: GainNode;
     output: GainNode;
   }>> = {};
-  private static readonly STEM_UNITY_GAIN = 0.33;
+  private static readonly STEM_NORMALIZED_GAIN = 0.33;
+  private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
@@ -268,12 +269,13 @@ export class AudioEngine {
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
     const vocalsGain = existingGains?.vocals ?? this.context.createGain();
-    const stemUnityGain = AudioEngine.STEM_UNITY_GAIN;
+    const stemUnityGain = AudioEngine.STEM_NORMALIZED_GAIN;
 
     drumsGain.gain.value = stemUnityGain;
     instGain.gain.value = stemUnityGain;
     vocalsGain.gain.value = stemUnityGain;
 
+    // Normalize the summed stem path so all three active stems land near unity (3 × 0.33 ≈ 1.0).
     // Wire: input -> [drums | inst | vocals] GainNodes -> output
     input.connect(drumsGain);
     input.connect(instGain);
@@ -434,8 +436,8 @@ export class AudioEngine {
     }
 
     if (type === 'crush') {
-      const decimation = Math.max(1, 1 + norm * 12); // 1..13
-      const reduction = norm === 0 ? 128 : 4 + norm * 60; // quantization levels
+      const decimation = 1 + norm * 12; // 1..13
+      const reduction = 4 + norm * 60; // quantization levels
       const crushActive = norm > 0.001;
       const preGain = crushActive ? 1 - norm * 0.2 : 0;
       const postGain = crushActive ? 1 + norm * 0.9 : 0;
@@ -562,7 +564,7 @@ export class AudioEngine {
   public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const target = isMuted ? 0 : AudioEngine.STEM_UNITY_GAIN;
+    const target = isMuted ? 0 : AudioEngine.STEM_NORMALIZED_GAIN;
     deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
   }
 
@@ -575,6 +577,22 @@ export class AudioEngine {
       this.applyPitchLock(deck.source, deckId);
     }
     return { enabled, supported };
+  }
+
+  public setDeckPlaybackRate(deckId: 'A' | 'B', playbackRate: number) {
+    const deck = this.decks[deckId];
+    const targetRate = Math.max(0.5, Math.min(2.0, playbackRate));
+    deck.playbackRate = targetRate;
+
+    if (!deck.source) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    const smoothing = deck.keyLockEnabled ? AudioEngine.KEY_LOCK_PLAYBACK_RAMP : 0.01;
+    deck.source.playbackRate.cancelScheduledValues(now);
+    deck.source.playbackRate.setValueAtTime(deck.source.playbackRate.value, now);
+    deck.source.playbackRate.setTargetAtTime(targetRate, now, smoothing);
   }
 
   public createEQChain() {

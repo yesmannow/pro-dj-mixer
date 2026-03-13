@@ -165,11 +165,11 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
       stopAudio();
 
-       sourceRef.current = engine.createPitchLockedSource(deckId, deckState.buffer);
-       sourceRef.current.playbackRate.value = basePlaybackRate;
+      sourceRef.current = engine.createPitchLockedSource(deckId, deckState.buffer);
 
       // Connect source to stem crossover input
       sourceRef.current.connect(stemChainRef.current.input);
+      engine.setDeckPlaybackRate(deckId, basePlaybackRate);
 
       sourceRef.current.start(0, pauseTimeRef.current);
 
@@ -225,13 +225,9 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
   useEffect(() => {
     if (!sourceRef.current) return;
-    sourceRef.current.playbackRate.setTargetAtTime(
-      basePlaybackRate,
-      AudioEngine.getInstance().context.currentTime,
-      0.02
-    );
+    AudioEngine.getInstance().setDeckPlaybackRate(deckId, basePlaybackRate);
     syncRuntime();
-  }, [basePlaybackRate, syncRuntime]);
+  }, [basePlaybackRate, deckId, syncRuntime]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -268,24 +264,16 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     } else {
       if (sourceRef.current) {
         const rate = basePlaybackRate + timeDelta * 10;
-        sourceRef.current.playbackRate.setTargetAtTime(
-          Math.max(0.5, Math.min(2.0, rate)),
-          AudioEngine.getInstance().context.currentTime,
-          0.05
-        );
+        AudioEngine.getInstance().setDeckPlaybackRate(deckId, rate);
       }
     }
-  }, [basePlaybackRate, commitDeckTime, deckState.buffer, deckState.isPlaying, syncRuntime]);
+  }, [basePlaybackRate, commitDeckTime, deckId, deckState.buffer, deckState.isPlaying, syncRuntime]);
 
   const endScrub = useCallback(() => {
     if (sourceRef.current && deckState.isPlaying) {
-      sourceRef.current.playbackRate.setTargetAtTime(
-        basePlaybackRate,
-        AudioEngine.getInstance().context.currentTime,
-        0.1
-      );
+      AudioEngine.getInstance().setDeckPlaybackRate(deckId, basePlaybackRate);
     }
-  }, [basePlaybackRate, deckState.isPlaying]);
+  }, [basePlaybackRate, deckId, deckState.isPlaying]);
 
   const getAudioData = useCallback((): AudioDataSnapshot => {
     if (!analyserRef.current || !dataArrayRef.current) {
