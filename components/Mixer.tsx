@@ -256,20 +256,20 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   }, [vaultAmbience]);
 
   return (
-    <div className={compact ? 'h-full bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl'}>
-      <div className={compact ? 'grid grid-cols-2 gap-5 w-full' : 'grid grid-cols-2 gap-8 w-full'}>
-        <div className={compact ? 'flex flex-col items-center gap-3' : 'flex flex-col items-center gap-4'}>
+    <div className={compact ? 'h-full deck-chassis rounded-xl border border-studio-gold/20 p-2 flex flex-col items-center gap-3 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'deck-chassis rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl'}>
+      <div className={compact ? 'grid grid-cols-2 gap-3 w-full' : 'grid grid-cols-2 gap-4 w-full'}>
+        <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />
           <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} />
           <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} />
         </div>
-        <div className={compact ? 'flex flex-col items-center gap-3' : 'flex flex-col items-center gap-4'}>
+        <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
           <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} />
           <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} />
           <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} />
         </div>
       </div>
-      <div className={compact ? 'flex justify-center gap-4 w-full px-2' : 'flex justify-center gap-6 w-full px-4'}>
+      <div className={compact ? 'flex justify-center gap-3 w-full px-1' : 'flex justify-center gap-4 w-full px-2'}>
         <VUMeter deckId="A" compact={compact} />
         <div
           ref={volARef}
@@ -321,7 +321,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         </div>
         <VUMeter deckId="B" compact={compact} />
       </div>
-      <div className={compact ? 'w-full px-2 mt-auto' : 'w-full px-4 mt-auto'}>
+      <div className={compact ? 'w-full px-1 mt-auto' : 'w-full px-2 mt-auto'}>
         <div
           className={compact ? 'h-7 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           ref={crossfaderRef}
@@ -372,7 +372,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-slate-300">
             Vault Ambience
-            <span className="font-mono text-studio-gold">{Math.round(vaultAmbience * 100)}%</span>
+            <span className="oled-display text-studio-gold">{Math.round(vaultAmbience * 100)}%</span>
           </div>
         </div>
         <div className="mt-4 flex justify-center">

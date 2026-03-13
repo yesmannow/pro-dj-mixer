@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2 } from 'lucide-react';
+import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -14,6 +14,12 @@ import { useHistoryStore } from '@/store/historyStore';
 import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
 import type { Track } from '@/lib/db';
 import { useShallow } from 'zustand/react/shallow';
+
+const PendingAnalysis = () => (
+  <span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold">
+    <Activity className="w-3 h-3" />Pending
+  </span>
+);
 
 export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
@@ -184,9 +190,10 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   return (
     <div
       className={clsx(
+        'library-container',
         compact
-          ? 'h-full min-h-0 w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
-          : 'h-[40vh] min-h-[250px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
+          ? 'h-full min-h-0 w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
+          : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -517,19 +524,19 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
             </thead>
             <tbody className="divide-y divide-slate-800/50">
               {/* Processing Tracks */}
-              {processingTracks.map((pt, idx) => (
-                <tr key={`processing-${pt.id}`} className="bg-slate-800/20 animate-pulse">
-                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+              {processingTracks.map((pt) => (
+                <tr key={`processing-${pt.id}`} className="bg-slate-800/20">
+                  <td className="px-4 py-4 text-sm text-slate-500"><Activity className="w-3.5 h-3.5 text-studio-gold pending-analysis" /></td>
                   <td className="px-4 py-4 text-sm flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center border border-slate-700">
                       <Loader2 className="w-4 h-4 text-accent animate-spin" />
                     </div>
                     <span className="font-medium text-slate-400 italic">Analyzing {pt.name}...</span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">-</td>
+                  <td className="px-6 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
                   <td className="px-4 py-4"></td>
                 </tr>
               ))}
@@ -588,7 +595,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                       )}
                       style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
                     >
-                      {track.key || '--'}
+                      {track.key || <PendingAnalysis />}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
