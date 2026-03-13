@@ -19,8 +19,14 @@ interface FrequencyRGB {
   blue: number;
 }
 
+/** Default RGB fallback when no analyser is available (dim gray waveform) */
+const DEFAULT_RGB = 80;
+
+/** Beats per phrase marker (4 bars × 4 beats = 16 beats) */
+const BEATS_PER_PHRASE_MARKER = 16;
+
 function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyRGB {
-  if (!analyser) return { red: 80, green: 80, blue: 80 };
+  if (!analyser) return { red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB };
   const bufferLength = analyser.frequencyBinCount;
   const dataArray = new Uint8Array(bufferLength);
   analyser.getByteFrequencyData(dataArray);
@@ -67,8 +73,8 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
   });
 
   // Refs for RGB frequency data (updated each frame, no re-renders)
-  const rgbARef = useRef<FrequencyRGB>({ red: 80, green: 80, blue: 80 });
-  const rgbBRef = useRef<FrequencyRGB>({ red: 80, green: 80, blue: 80 });
+  const rgbARef = useRef<FrequencyRGB>({ red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB });
+  const rgbBRef = useRef<FrequencyRGB>({ red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB });
 
   useEffect(() => {
     const unsubA = useDeckStore.subscribe((state) => {
@@ -139,7 +145,7 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
         if (x < 0 || x > width) continue;
 
         const isDownbeat = beatIndex % 4 === 0;
-        const isPhraseStart = beatIndex % 16 === 0; // 4 bars (16 beats)
+        const isPhraseStart = beatIndex % BEATS_PER_PHRASE_MARKER === 0;
         ctx.save();
         if (isPhraseStart) {
           ctx.strokeStyle = 'rgba(255,215,0,0.7)';

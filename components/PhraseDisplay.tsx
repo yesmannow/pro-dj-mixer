@@ -1,5 +1,10 @@
 'use client';
 
+/** Standard phrase length in beats (8 bars × 4 beats). Most electronic/pop music uses 8-bar phrases. */
+const BEATS_PER_PHRASE = 32;
+/** Alert threshold: pulse red when this many bars or fewer remain */
+const URGENT_BARS_THRESHOLD = 4;
+
 interface PhraseDisplayProps {
   bpm: number;
   currentTime: number;
@@ -14,13 +19,12 @@ export function PhraseDisplay({ bpm, currentTime, label }: Readonly<PhraseDispla
   if (!bpm || bpm <= 0) return null;
 
   const secondsPerBeat = 60 / bpm;
-  const beatsPerPhrase = 32;
   const currentBeat = currentTime / secondsPerBeat;
-  const beatInPhrase = currentBeat % beatsPerPhrase;
-  const beatsRemaining = beatsPerPhrase - beatInPhrase;
+  const beatInPhrase = currentBeat % BEATS_PER_PHRASE;
+  const beatsRemaining = BEATS_PER_PHRASE - beatInPhrase;
   const barsRemaining = Math.ceil(beatsRemaining / 4);
 
-  const isUrgent = barsRemaining <= 4;
+  const isUrgent = barsRemaining <= URGENT_BARS_THRESHOLD;
 
   return (
     <div

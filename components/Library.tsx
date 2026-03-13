@@ -79,6 +79,11 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   // Compute compatible keys for harmonic highlighting
   const compatibleKeys = masterDeck.track?.key ? getCompatibleKeys(masterDeck.track.key.toUpperCase()) : [];
 
+  const isTrackHarmonicMatch = (trackKey: string | undefined) =>
+    masterDeck.isPlaying && masterDeck.track?.key && trackKey
+      ? compatibleKeys.includes(trackKey.toUpperCase())
+      : false;
+
   const [newCrateName, setNewCrateName] = useState('');
   const [isCreatingCrate, setIsCreatingCrate] = useState(false);
 
@@ -574,9 +579,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
           <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
             {displayTracks.map((track) => {
               const camelotStyle = getCamelotStyles(track.key);
-              const isHarmonicMatch = masterDeck.isPlaying && masterDeck.track?.key && track.key
-                ? compatibleKeys.includes(track.key.toUpperCase())
-                : false;
+              const isHarmonicMatch = isTrackHarmonicMatch(track.key);
               return (
                 <div
                   key={track.id}
@@ -679,9 +682,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                   ? isSmartMatch(masterDeck.track.key, Number(masterDeck.track.bpm) || 120, track.key, Number(track.bpm) || 120)
                   : false;
                 const isBlocked = isSmartMatchEnabled && masterDeck.track && !isMatch;
-                const isHarmonicMatch = masterDeck.isPlaying && masterDeck.track?.key && track.key
-                  ? compatibleKeys.includes(track.key.toUpperCase())
-                  : false;
+                const isHarmonicMatch = isTrackHarmonicMatch(track.key);
                 return (
                 <tr
                   key={track.id}

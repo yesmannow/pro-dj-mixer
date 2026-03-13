@@ -14,7 +14,8 @@ export function useKeyboardShortcuts() {
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
 
-    const NUDGE_AMOUNT = 0.5; // percent
+    /** Pitch nudge adjustment in percentage points (±0.5%) */
+    const NUDGE_AMOUNT = 0.5;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
