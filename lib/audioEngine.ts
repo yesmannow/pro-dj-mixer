@@ -65,6 +65,10 @@ export class AudioEngine {
     inst: GainNode;
     vocals: GainNode;
   }>> = {};
+  private stemChains: Partial<Record<'A' | 'B', {
+    input: GainNode;
+    output: GainNode;
+  }>> = {};
 
   private constructor() {
     this.context = new (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext)();
@@ -225,55 +229,37 @@ export class AudioEngine {
   }
 
   public createStemChain(deckId: 'A' | 'B') {
+    // Reuse existing nodes to prevent duplicate audio nodes in the graph
+    const existingGains = this.stemGains[deckId];
+    const existingChain = this.stemChains[deckId];
+    if (existingGains && existingChain) {
+      return existingChain;
+    }
+
     const input = this.context.createGain();
     const output = this.context.createGain();
 
-    const drumsFilter = this.context.createBiquadFilter();
-    drumsFilter.type = 'lowpass';
-    drumsFilter.frequency.value = 250;
-
-    const instFilter = this.context.createBiquadFilter();
-    instFilter.type = 'bandpass';
-    instFilter.frequency.value = 1000;
-    instFilter.Q.value = 0.5;
-
-    const vocalsFilter = this.context.createBiquadFilter();
-    vocalsFilter.type = 'highpass';
-    vocalsFilter.frequency.value = 2000;
-
-    const drumsGain = this.context.createGain();
-    const instGain = this.context.createGain();
-    const vocalsGain = this.context.createGain();
+    const drumsGain = existingGains?.drums ?? this.context.createGain();
+    const instGain = existingGains?.inst ?? this.context.createGain();
+    const vocalsGain = existingGains?.vocals ?? this.context.createGain();
 
     drumsGain.gain.value = 1;
     instGain.gain.value = 1;
     vocalsGain.gain.value = 1;
 
-    input.connect(drumsFilter);
-    input.connect(instFilter);
-    input.connect(vocalsFilter);
-
-    drumsFilter.connect(drumsGain);
-    instFilter.connect(instGain);
-    vocalsFilter.connect(vocalsGain);
+    // Wire: input -> [drums | inst | vocals] GainNodes -> output
+    input.connect(drumsGain);
+    input.connect(instGain);
+    input.connect(vocalsGain);
 
     drumsGain.connect(output);
     instGain.connect(output);
     vocalsGain.connect(output);
 
-    this.stemGains[deckId] = {
-      drums: drumsGain,
-      inst: instGain,
-      vocals: vocalsGain
-    };
+    this.stemGains[deckId] = { drums: drumsGain, inst: instGain, vocals: vocalsGain };
+    this.stemChains[deckId] = { input, output };
 
-    return {
-      input,
-      output,
-      drumsFilter,
-      instFilter,
-      vocalsFilter
-    };
+    return this.stemChains[deckId]!;
   }
 
   private async ensureAudioWorklets(): Promise<boolean> {

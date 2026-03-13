@@ -26,7 +26,11 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [isDragging, setIsDragging] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
+  const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
   const actionsMenuRef = useRef<HTMLDivElement>(null);
+  const analyzerWorkerRef = useRef<Worker | null>(null);
+  // Reuse a single AudioContext for all BPM decode operations (lightweight, non-realtime)
+  const decodeAudioCtxRef = useRef<AudioContext | null>(null);
 
   const {
     tracks,
@@ -98,6 +102,59 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
     loadCrates();
     loadHistory();
   }, [loadTracks, seedLibrary, loadCrates, loadHistory]);
+
+  // Initialise the analyzer worker (public/workers/analyzer.worker.js)
+  useEffect(() => {
+    analyzerWorkerRef.current = new Worker('/workers/analyzer.worker.js');
+    decodeAudioCtxRef.current = new AudioContext();
+    return () => {
+      analyzerWorkerRef.current?.terminate();
+      analyzerWorkerRef.current = null;
+      void decodeAudioCtxRef.current?.close();
+      decodeAudioCtxRef.current = null;
+    };
+  }, []);
+
+  // For any track whose BPM is missing or '--', offload calculation to the worker
+  useEffect(() => {
+    const pending = tracks.find(
+      (t) => t.id && (!t.bpm || t.bpm === '--') && !computedBpms[t.id] && (t.fileBlob || t.audioUrl)
+    );
+    if (!pending || !analyzerWorkerRef.current || !decodeAudioCtxRef.current) return;
+
+    const worker = analyzerWorkerRef.current;
+    const audioCtx = decodeAudioCtxRef.current;
+    const trackId = pending.id!;
+
+    const loadAndAnalyze = async () => {
+      try {
+        let arrayBuffer: ArrayBuffer;
+        if (pending.fileBlob) {
+          arrayBuffer = await pending.fileBlob.arrayBuffer();
+        } else {
+          const resp = await fetch(pending.audioUrl!);
+          if (!resp.ok) return;
+          arrayBuffer = await resp.arrayBuffer();
+        }
+
+        // Reuse the shared AudioContext to avoid creating heavyweight instances per track
+        const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+        const audioData = audioBuffer.getChannelData(0);
+        const { sampleRate } = audioBuffer;
+
+        worker.onmessage = (e: MessageEvent<{ bpm: number; key: string }>) => {
+          setComputedBpms((prev) => ({ ...prev, [trackId]: String(e.data.bpm) }));
+        };
+
+        // Transfer the backing ArrayBuffer to the worker to avoid copying the large typed array
+        worker.postMessage({ audioData, sampleRate }, [audioData.buffer]);
+      } catch {
+        // Non-critical — silently skip tracks that cannot be decoded
+      }
+    };
+
+    void loadAndAnalyze();
+  }, [tracks, computedBpms]);
 
   // Track plays for history
   const lastPlayedIdA = useRef<number | null>(null);
@@ -586,7 +643,9 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                     )}
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
-                  <td className={clsx("px-4 py-4 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>{track.bpm}</td>
+                  <td className={clsx("px-4 py-4 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>
+                    {(track.id && computedBpms[track.id]) || track.bpm || '--'}
+                  </td>
                   <td className="px-4 py-4 text-sm">
                     <span
                       className={clsx(

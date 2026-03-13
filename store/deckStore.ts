@@ -2,6 +2,12 @@ import { create } from 'zustand';
 import { Track } from '@/lib/db';
 import { AudioEngine } from '@/lib/audioEngine';
 
+export interface StemState {
+  vocals: boolean;
+  drums: boolean;
+  inst: boolean;
+}
+
 export interface DeckState {
   track: Track | null;
   isPlaying: boolean;
@@ -12,6 +18,7 @@ export interface DeckState {
   volume: number;
   pitchPercent: number;
   sync: boolean;
+  stems: StemState;
 }
 
 interface DeckStore {
@@ -23,6 +30,7 @@ interface DeckStore {
   setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
   toggleSync: (deckId: 'A' | 'B') => void;
   setCurrentTime: (deckId: 'A' | 'B', time: number) => void;
+  toggleStem: (deckId: 'A' | 'B', stemType: keyof StemState) => void;
 }
 
 const initialDeckState: DeckState = {
@@ -35,6 +43,7 @@ const initialDeckState: DeckState = {
   volume: 1,
   pitchPercent: 0,
   sync: false,
+  stems: { vocals: true, drums: true, inst: true },
 };
 
 export const useDeckStore = create<DeckStore>((set, get) => ({
@@ -45,7 +54,7 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
     const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
 
     set((state) => ({
-      [deckKey]: { ...state[deckKey], isLoading: true, track }
+      [deckKey]: { ...state[deckKey], isLoading: true, track, stems: { vocals: true, drums: true, inst: true } }
     }));
 
     try {
@@ -149,5 +158,23 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
         [localDeckKey]: { ...localDeck, sync: true, pitchPercent }
       };
     });
-  }
+  },
+
+  toggleStem: (deckId: 'A' | 'B', stemType: keyof StemState) => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    set((state) => {
+      const currentStems = state[deckKey].stems;
+      const nextActive = !currentStems[stemType];
+      if (typeof window !== 'undefined') {
+        // stems.x = true means the stem is audible (not muted); invert for setStemMute
+        AudioEngine.getInstance().setStemMute(deckId, stemType, !nextActive);
+      }
+      return {
+        [deckKey]: {
+          ...state[deckKey],
+          stems: { ...currentStems, [stemType]: nextActive },
+        },
+      };
+    });
+  },
 }));

@@ -10,6 +10,7 @@ import { useLibraryStore } from '@/store/libraryStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { usePerformanceKeys } from '@/hooks/usePerformanceKeys';
+import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
 import { OverviewWaveform } from '@/components/OverviewWaveform';
 import { PerformancePads } from '@/components/deck/PerformancePads';
 import { PitchFader } from '@/components/deck/PitchFader';
@@ -65,6 +66,10 @@ const DEFAULT_DECK_THEME: Record<'A' | 'B', DeckTheme> = {
   A: { primary: '#D4AF37', secondary: '#F59E0B', primaryRgb: '212,175,55' },
   B: { primary: '#E11D48', secondary: '#FB7185', primaryRgb: '225,29,72' },
 };
+
+// Waveform beat-sync pulse: base opacity at silence, scales up to 1.0 at peak volume
+const WAVEFORM_BASE_OPACITY = 0.7;
+const WAVEFORM_OPACITY_RANGE = 0.3; // base + range = 1.0 at maximum volumeScale
 
 const hexToRgbString = (hex: string) => {
   const normalized = hex.replace('#', '');
@@ -145,15 +150,17 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const toggleSync = useDeckStore((state) => state.toggleSync);
   const pitchPercent = useDeckStore((state) => (deckId === 'A' ? state.deckA.pitchPercent : state.deckB.pitchPercent));
   const sync = useDeckStore((state) => (deckId === 'A' ? state.deckA.sync : state.deckB.sync));
+  const stems = useDeckStore((state) => (deckId === 'A' ? state.deckA.stems : state.deckB.stems));
+  const toggleStem = useDeckStore((state) => state.toggleStem);
   const { tracks } = useLibraryStore();
   const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
+  const { volumeScale } = useAudioAnalyzer(deckId);
   const { setCue, clearCue, loadCues, getCues, autoGenerateCues } = useTrackCueStore();
 
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
-  const [stemLeds, setStemLeds] = useState<Record<string, boolean>>({ VOC: false, DRM: false, INST: false });
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
   const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
   const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
@@ -665,7 +672,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
         Drag and drop a track onto this deck to load it.
       </p>
       {!compact && (
-        <div className="relative">
+        <div className="relative" style={{ opacity: WAVEFORM_BASE_OPACITY + volumeScale * WAVEFORM_OPACITY_RANGE }}>
           <OverviewWaveform
             deckId={deckId}
             duration={duration}
@@ -711,14 +718,15 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
       <div className={compact ? 'flex items-center gap-2' : 'flex items-center gap-3'}>
         {(['VOC', 'DRM', 'INST'] as const).map((stem) => {
           const colors: Record<string, string> = { VOC: '#00BFFF', DRM: '#FF003C', INST: '#FFD700' };
-          const isActive = stemLeds[stem];
+          const stemKeyMap: Record<string, 'vocals' | 'drums' | 'inst'> = { VOC: 'vocals', DRM: 'drums', INST: 'inst' };
+          const isActive = stems[stemKeyMap[stem]];
           return (
             <button
               key={stem}
               type="button"
               className={clsx('stem-led', isActive && 'stem-led-active')}
               style={{ ['--stem-color' as string]: colors[stem] }}
-              onClick={() => setStemLeds((prev) => ({ ...prev, [stem]: !prev[stem] }))}
+              onClick={() => toggleStem(deckId, stemKeyMap[stem])}
             >
               {stem}
             </button>
