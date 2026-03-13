@@ -690,7 +690,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </h3>
           <div className={compact ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
             <p className={compact ? 'text-[11px] text-slate-300' : 'text-slate-300 text-[length:var(--step-0)]'}>
-              {artist} • <span style={{ fontFamily: 'var(--font-mono)' }} className="font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span style={{ fontFamily: 'var(--font-mono)' }} className="font-bold text-slate-100">{keySignature}</span>
+              {artist} • <span className="oled-display font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span className="oled-display font-bold text-slate-100">{keySignature}</span>
             </p>
             <button
               onClick={handleTap}
@@ -702,7 +702,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </div>
         </div>
         <div className="text-right">
-          <p className={compact ? 'font-bold text-slate-200 tabular-nums neon-text-glow text-base' : 'font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]'} style={{ fontFamily: 'var(--font-mono)' }}>{timeRemaining}</p>
+          <p className={compact ? 'oled-display font-bold text-slate-200 tabular-nums neon-text-glow text-base' : 'oled-display font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]'}>{timeRemaining}</p>
           <p className={compact ? 'text-slate-500 text-[9px] uppercase tracking-[0.2em]' : 'text-slate-500 text-[10px] uppercase tracking-widest'}>Remaining</p>
         </div>
       </div>

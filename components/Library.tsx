@@ -15,6 +15,12 @@ import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
 import type { Track } from '@/lib/db';
 import { useShallow } from 'zustand/react/shallow';
 
+const PendingAnalysis = () => (
+  <span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold">
+    <Activity className="w-3 h-3" />Pending
+  </span>
+);
+
 export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
@@ -527,10 +533,10 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                     </div>
                     <span className="font-medium text-slate-400 italic">Analyzing {pt.name}...</span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500"><span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold"><Activity className="w-3 h-3" />Pending</span></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold"><Activity className="w-3 h-3" />Pending</span></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold"><Activity className="w-3 h-3" />Pending</span></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><span className="pending-analysis inline-flex items-center gap-1 text-[10px] text-studio-gold"><Activity className="w-3 h-3" />Pending</span></td>
+                  <td className="px-6 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
                   <td className="px-4 py-4"></td>
                 </tr>
               ))}
@@ -589,7 +595,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                       )}
                       style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
                     >
-                      {track.key || <span className="pending-analysis inline-flex items-center gap-0.5 text-[10px] text-studio-gold"><Activity className="w-3 h-3" /></span>}
+                      {track.key || <PendingAnalysis />}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>

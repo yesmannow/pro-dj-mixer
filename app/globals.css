@@ -130,6 +130,10 @@
     box-shadow: 0 0 14px var(--stem-color, #FFD700), 0 0 4px var(--stem-color, #FFD700);
   }
 
+  .oled-display {
+    font-family: var(--font-mono);
+  }
+
   @keyframes pending-pulse {
     0%, 100% { opacity: 0.4; }
     50% { opacity: 1; }

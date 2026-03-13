@@ -372,7 +372,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-slate-300">
             Vault Ambience
-            <span className="text-studio-gold" style={{ fontFamily: 'var(--font-mono)' }}>{Math.round(vaultAmbience * 100)}%</span>
+            <span className="oled-display text-studio-gold">{Math.round(vaultAmbience * 100)}%</span>
           </div>
         </div>
         <div className="mt-4 flex justify-center">
