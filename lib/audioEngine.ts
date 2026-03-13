@@ -489,6 +489,10 @@ export class AudioEngine {
     };
   }
 
+  public getDeckAnalyser(deckId: 'A' | 'B'): AnalyserNode | null {
+    return this.deckAnalysers[deckId] ?? null;
+  }
+
   public registerDeckAnalyser(deckId: 'A' | 'B', analyser: AnalyserNode) {
     this.deckAnalysers[deckId] = analyser;
     this.deckDataArrays[deckId] = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));

@@ -5,9 +5,12 @@ import { Deck } from '@/components/Deck';
 import { Mixer } from '@/components/Mixer';
 import { Library } from '@/components/Library';
 import { ParallelWaveforms } from '@/components/ParallelWaveforms';
+import { PhraseDisplay } from '@/components/PhraseDisplay';
 import { useUIStore } from '@/store/uiStore';
-import { ChevronUp, Settings } from 'lucide-react';
+import { useDeckStore } from '@/store/deckStore';
+import { ChevronUp, Settings, Zap } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ViewControls } from '@/components/ViewControls';
@@ -16,6 +19,8 @@ import { CRTTerminal } from '@/components/ui/CRTTerminal';
 type CompactPanel = 'deckA' | 'mixer' | 'deckB' | 'library';
 
 export default function Home() {
+  useKeyboardShortcuts();
+
   const {
     isWaveformVisible,
     isLibraryVisible,
@@ -23,9 +28,14 @@ export default function Home() {
     isDeckBVisible,
     isMixerVisible,
     isAddMusicModalOpen,
+    isPerformanceMode,
     toggleWaveform,
     toggleLibrary,
+    togglePerformanceMode,
   } = useUIStore();
+
+  const deckA = useDeckStore((s) => ({ isPlaying: s.deckA.isPlaying, bpm: Number(s.deckA.track?.bpm) || 0, currentTime: s.deckA.currentTime }));
+  const deckB = useDeckStore((s) => ({ isPlaying: s.deckB.isPlaying, bpm: Number(s.deckB.track?.bpm) || 0, currentTime: s.deckB.currentTime }));
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
@@ -119,16 +129,40 @@ export default function Home() {
               </>
             ) : (
               <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 min-h-0 min-w-0 overflow-x-hidden">
-                {isWaveformVisible && (
+                {(isWaveformVisible || isPerformanceMode) && (
                   <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden flex-shrink-0">
                     <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
-                      <h2 className="text-sm font-bold text-white tracking-tight">WAVEFORMS</h2>
-                      <button
-                        onClick={toggleWaveform}
-                        className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-4">
+                        <h2 className="text-sm font-bold text-white tracking-tight">WAVEFORMS</h2>
+                        {deckA.isPlaying && deckA.bpm > 0 && (
+                          <PhraseDisplay bpm={deckA.bpm} currentTime={deckA.currentTime} label="A" />
+                        )}
+                        {deckB.isPlaying && deckB.bpm > 0 && (
+                          <PhraseDisplay bpm={deckB.bpm} currentTime={deckB.currentTime} label="B" />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={togglePerformanceMode}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
+                            isPerformanceMode
+                              ? 'bg-studio-crimson text-white shadow-[0_0_12px_rgba(255,0,60,0.4)] border border-studio-crimson'
+                              : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white hover:border-white/20'
+                          }`}
+                          title="Performance Mode"
+                        >
+                          <Zap className="w-3 h-3" />
+                          PERF
+                        </button>
+                        {!isPerformanceMode && (
+                          <button
+                            onClick={toggleWaveform}
+                            className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
+                          >
+                            <ChevronUp className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <div className="p-4">
                       <ParallelWaveforms />
@@ -184,16 +218,18 @@ export default function Home() {
                   </div>
                 </div>
 
-                {isLibraryVisible && (
-                  <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden flex-shrink-0">
+                {(isLibraryVisible || isPerformanceMode) && (
+                  <div className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden flex-shrink-0 transition-all duration-300`}>
                     <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
                       <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>
-                      <button
-                        onClick={toggleLibrary}
-                        className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </button>
+                      {!isPerformanceMode && (
+                        <button
+                          onClick={toggleLibrary}
+                          className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                     <div className="p-0">
                       <Library />

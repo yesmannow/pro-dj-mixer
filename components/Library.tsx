@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity } from 'lucide-react';
+import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -12,6 +12,7 @@ import { useCueStore } from '@/store/cueStore';
 import { useCrateStore } from '@/store/crateStore';
 import { useHistoryStore } from '@/store/historyStore';
 import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
+import { getCompatibleKeys } from '@/lib/harmonicKeys';
 import type { Track } from '@/lib/db';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -46,7 +47,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
     vaultTotalCount,
   } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
-  const { isSmartMatchEnabled, toggleSmartMatch } = useUIStore();
+  const { isSmartMatchEnabled, toggleSmartMatch, isGridView, toggleGridView, isPerformanceMode } = useUIStore();
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
     crates,
@@ -74,6 +75,14 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   );
 
   const masterDeck = deckA.isPlaying ? deckA : (deckB.isPlaying ? deckB : deckA);
+
+  // Compute compatible keys for harmonic highlighting
+  const compatibleKeys = masterDeck.track?.key ? getCompatibleKeys(masterDeck.track.key.toUpperCase()) : [];
+
+  const isTrackHarmonicMatch = (trackKey: string | undefined) =>
+    masterDeck.isPlaying && masterDeck.track?.key && trackKey
+      ? compatibleKeys.includes(trackKey.toUpperCase())
+      : false;
 
   const [newCrateName, setNewCrateName] = useState('');
   const [isCreatingCrate, setIsCreatingCrate] = useState(false);
@@ -250,7 +259,9 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
         'library-container',
         compact
           ? 'h-full min-h-0 w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
-          : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
+          : isPerformanceMode
+            ? 'h-[15vh] min-h-[80px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
+            : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -370,6 +381,18 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
             )}
           >
             SMART MATCH
+          </button>
+          <button
+            onClick={toggleGridView}
+            className={clsx(
+              compact ? 'p-1.5 rounded border text-[10px] font-bold transition-all' : "p-1.5 rounded border text-[11px] font-bold transition-all",
+              isGridView
+                ? "bg-studio-gold text-studio-black border-studio-gold"
+                : "bg-white/5 text-slate-300 border-white/15 hover:border-studio-gold/60 hover:text-studio-gold"
+            )}
+            title={isGridView ? "List View" : "Grid View"}
+          >
+            {isGridView ? <List className="w-4 h-4" /> : <Grid className="w-4 h-4" />}
           </button>
           <button
             onClick={() => {
@@ -552,7 +575,61 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
         )}
 
-        {activeTab !== 'cue' && (
+        {activeTab !== 'cue' && isGridView && (
+          <div className="p-4 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+            {displayTracks.map((track) => {
+              const camelotStyle = getCamelotStyles(track.key);
+              const isHarmonicMatch = isTrackHarmonicMatch(track.key);
+              return (
+                <div
+                  key={track.id}
+                  draggable
+                  onDragStart={(e) => handleTrackDragStart(e, track)}
+                  className={clsx(
+                    "group cursor-grab active:cursor-grabbing rounded-xl overflow-hidden border border-white/10 bg-slate-900/60 hover:bg-slate-800/60 transition-all",
+                    isHarmonicMatch && "shadow-[0_0_12px_rgba(255,215,0,0.4)] border-studio-gold/50"
+                  )}
+                >
+                  <div className="aspect-square bg-slate-800 relative overflow-hidden">
+                    {track.artworkUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                        <div className="w-12 h-12 rounded-full border-2 border-slate-600 flex items-center justify-center">
+                          <div className="w-3 h-3 bg-accent rounded-full" />
+                        </div>
+                      </div>
+                    )}
+                    <div className="absolute bottom-1 right-1">
+                      <span
+                        className="px-1.5 py-0.5 rounded text-[9px] font-bold font-mono"
+                        style={{ backgroundColor: camelotStyle.bg, color: camelotStyle.text }}
+                      >
+                        {track.key || '—'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-2">
+                    <div className="text-[11px] font-medium text-slate-200 truncate">{track.title}</div>
+                    <div className="text-[9px] text-slate-500 truncate">{track.artist}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[9px] font-mono text-slate-400">{track.bpm || '--'} BPM</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {tracks.length === 0 && (
+              <div className="col-span-full py-12 text-center text-slate-500">
+                <UploadCloud className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                <p>No tracks in library.</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab !== 'cue' && !isGridView && (
           <table className="w-full text-left">
             <thead className="bg-slate-900/80 sticky top-0 border-b border-slate-800 z-20">
               <tr>
@@ -605,6 +682,7 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                   ? isSmartMatch(masterDeck.track.key, Number(masterDeck.track.bpm) || 120, track.key, Number(track.bpm) || 120)
                   : false;
                 const isBlocked = isSmartMatchEnabled && masterDeck.track && !isMatch;
+                const isHarmonicMatch = isTrackHarmonicMatch(track.key);
                 return (
                 <tr
                   key={track.id}
@@ -613,7 +691,8 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
                   className={clsx(
                     "group cursor-grab active:cursor-grabbing transition-colors hover:bg-slate-800/40",
                     isMatch && "border border-studio-gold shadow-[0_0_10px_#D4AF37] animate-pulse",
-                    isBlocked && "opacity-20 pointer-events-none"
+                    isBlocked && "opacity-20 pointer-events-none",
+                    isHarmonicMatch && !isMatch && "shadow-[0_0_8px_rgba(255,215,0,0.3)] border-l-2 border-l-studio-gold/50"
                   )}
                 >
                   <td className="px-4 py-4 text-sm text-slate-500 font-mono">

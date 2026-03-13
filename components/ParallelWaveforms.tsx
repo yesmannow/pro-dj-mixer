@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useUIStore } from '@/store/uiStore';
+import { AudioEngine } from '@/lib/audioEngine';
 
 type DeckSnapshot = {
   currentTime: number;
@@ -12,12 +13,49 @@ type DeckSnapshot = {
   buffer: AudioBuffer | null;
 };
 
+interface FrequencyRGB {
+  red: number;
+  green: number;
+  blue: number;
+}
+
+/** Default RGB fallback when no analyser is available (dim gray waveform) */
+const DEFAULT_RGB = 80;
+
+/** Beats per phrase marker (4 bars × 4 beats = 16 beats) */
+const BEATS_PER_PHRASE_MARKER = 16;
+
+function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyRGB {
+  if (!analyser) return { red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB };
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  analyser.getByteFrequencyData(dataArray);
+
+  const lowEnd = dataArray.slice(0, Math.floor(bufferLength * 0.1));
+  const midRange = dataArray.slice(Math.floor(bufferLength * 0.1), Math.floor(bufferLength * 0.5));
+  const highEnd = dataArray.slice(Math.floor(bufferLength * 0.5));
+
+  const average = (arr: Uint8Array) => {
+    if (arr.length === 0) return 0;
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) sum += arr[i];
+    return sum / arr.length;
+  };
+
+  return {
+    red: average(lowEnd),
+    green: average(midRange),
+    blue: average(highEnd),
+  };
+}
+
 export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: boolean }>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const zoom = useUIStore((state) => state.waveformZoom);
   const setZoom = useUIStore((state) => state.setWaveformZoom);
+  const isPerformanceMode = useUIStore((state) => state.isPerformanceMode);
 
   const deckARef = useRef<DeckSnapshot>({
     currentTime: useDeckStore.getState().deckA.currentTime,
@@ -33,6 +71,10 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
     bpm: Number(useDeckStore.getState().deckB.track?.bpm) || 120,
     buffer: useDeckStore.getState().deckB.buffer,
   });
+
+  // Refs for RGB frequency data (updated each frame, no re-renders)
+  const rgbARef = useRef<FrequencyRGB>({ red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB });
+  const rgbBRef = useRef<FrequencyRGB>({ red: DEFAULT_RGB, green: DEFAULT_RGB, blue: DEFAULT_RGB });
 
   useEffect(() => {
     const unsubA = useDeckStore.subscribe((state) => {
@@ -73,9 +115,6 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
     let playheadA = deckARef.current.currentTime;
     let playheadB = deckBRef.current.currentTime;
 
-    const COLOR_A = '#D4AF37';
-    const COLOR_B = '#E11D48';
-
     const resizeCanvas = () => {
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
@@ -106,13 +145,29 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
         if (x < 0 || x > width) continue;
 
         const isDownbeat = beatIndex % 4 === 0;
+        const isPhraseStart = beatIndex % BEATS_PER_PHRASE_MARKER === 0;
         ctx.save();
-        ctx.strokeStyle = isDownbeat ? 'rgba(212,175,55,0.5)' : 'rgba(255,255,255,0.1)';
-        ctx.lineWidth = isDownbeat ? 2 : 1;
+        if (isPhraseStart) {
+          ctx.strokeStyle = 'rgba(255,215,0,0.7)';
+          ctx.lineWidth = 2.5;
+        } else if (isDownbeat) {
+          ctx.strokeStyle = 'rgba(212,175,55,0.5)';
+          ctx.lineWidth = 2;
+        } else {
+          ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+          ctx.lineWidth = 1;
+        }
         ctx.beginPath();
         ctx.moveTo(x, yOffset);
         ctx.lineTo(x, yOffset + height);
         ctx.stroke();
+
+        // Draw bar number labels on downbeats
+        if (isPhraseStart) {
+          ctx.fillStyle = 'rgba(255,215,0,0.6)';
+          ctx.font = '9px monospace';
+          ctx.fillText(`${Math.floor(beatIndex / 4) + 1}`, x + 3, yOffset + 10);
+        }
         ctx.restore();
       }
     };
@@ -122,7 +177,7 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
       width: number,
       height: number,
       yOffset: number,
-      color: string,
+      rgb: FrequencyRGB,
       playheadRaw: number,
       buffer: AudioBuffer | null,
       pixelsPerSecond: number,
@@ -137,7 +192,10 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
       const samplesPerBar = Math.max(1, Math.floor((barWidth / pixelsPerSecond) * buffer.sampleRate));
       const centerPixel = width / 2;
 
-      ctx.fillStyle = color;
+      // RGB frequency-driven color: intensity scales with energy
+      const r = Math.min(255, Math.floor(rgb.red * 1.2));
+      const g = Math.min(255, Math.floor(rgb.green * 1.2));
+      const b = Math.min(255, Math.floor(rgb.blue * 1.2));
 
       for (let x = 0; x < width; x += barWidth) {
         const timeAtPixel = playheadRaw + ((x - centerPixel) / pixelsPerSecond);
@@ -149,17 +207,23 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
           const idx = sampleStart + i;
           if (idx >= left.length) break;
           const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
-        const abs = Math.abs(sample);
-        if (abs > max) max = abs;
+          const abs = Math.abs(sample);
+          if (abs > max) max = abs;
+        }
+        const barHeight = max * amp;
+
+        // Blend RGB based on bar position relative to playhead
+        const distFromCenter = Math.abs(x - centerPixel) / (width / 2);
+        const alpha = 1 - distFromCenter * 0.4;
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+
+        if (isTop) {
+          ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+        } else {
+          ctx.fillRect(x, centerY, barWidth, barHeight);
+        }
       }
-      const barHeight = max * amp;
-      if (isTop) {
-        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
-      } else {
-        ctx.fillRect(x, centerY, barWidth, barHeight);
-      }
-    }
-  };
+    };
 
     const drawPlayhead = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
       const centerPixel = width / 2;
@@ -184,6 +248,8 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
       ctx.shadowBlur = 0;
     };
 
+    const engine = AudioEngine.getInstance();
+
     const renderLoop = (time: number) => {
       const dt = (time - lastTime) / 1000;
       lastTime = time;
@@ -196,6 +262,10 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
 
       if (snapB.isPlaying) playheadB += dt;
       else playheadB = snapB.currentTime;
+
+      // Read RGB frequency data directly (no React re-renders)
+      rgbARef.current = getFrequencyDataFromAnalyser(engine.getDeckAnalyser('A'));
+      rgbBRef.current = getFrequencyDataFromAnalyser(engine.getDeckAnalyser('B'));
 
       const width = canvas.width;
       const height = canvas.height;
@@ -210,8 +280,8 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
       drawBeatGrid(ctx, width, halfHeight, 0, snapA.bpm, playheadA, pixelsPerSecond);
       drawBeatGrid(ctx, width, halfHeight, halfHeight, snapB.bpm, playheadB, pixelsPerSecond);
 
-      drawWaveform(ctx, width, halfHeight, 0, COLOR_A, playheadA, snapA.buffer, pixelsPerSecond, true);
-      drawWaveform(ctx, width, halfHeight, halfHeight, COLOR_B, playheadB, snapB.buffer, pixelsPerSecond, false);
+      drawWaveform(ctx, width, halfHeight, 0, rgbARef.current, playheadA, snapA.buffer, pixelsPerSecond, true);
+      drawWaveform(ctx, width, halfHeight, halfHeight, rgbBRef.current, playheadB, snapB.buffer, pixelsPerSecond, false);
 
       drawPlayhead(ctx, width, height);
 
@@ -244,14 +314,14 @@ export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: bool
     };
   }, [setZoom]);
 
+  const heightClass = isPerformanceMode
+    ? (compact ? 'h-24' : 'h-48 md:h-64 xl:h-80')
+    : (compact ? 'h-12' : 'h-24 md:h-32 xl:h-40');
+
   return (
     <div
       ref={containerRef}
-      className={
-        compact
-          ? 'h-12 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative'
-          : 'h-24 md:h-32 xl:h-40 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative'
-      }
+      className={`${heightClass} w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative transition-all duration-300`}
     >
       <canvas
         ref={canvasRef}

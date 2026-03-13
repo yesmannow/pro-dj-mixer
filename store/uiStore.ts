@@ -11,7 +11,9 @@ interface UIState {
   autoPlayOnHotCue: boolean;
   waveformZoom: number;
   isShiftHeld: boolean;
-   isSmartMatchEnabled: boolean;
+  isSmartMatchEnabled: boolean;
+  isPerformanceMode: boolean;
+  isGridView: boolean;
   toggleWaveform: () => void;
   toggleLibrary: () => void;
   toggleDeckA: () => void;
@@ -23,6 +25,8 @@ interface UIState {
   setWaveformZoom: (zoom: number | ((prev: number) => number)) => void;
   setShiftHeld: (held: boolean) => void;
   toggleSmartMatch: () => void;
+  togglePerformanceMode: () => void;
+  toggleGridView: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -37,6 +41,8 @@ export const useUIStore = create<UIState>((set) => ({
   waveformZoom: 80,
   isShiftHeld: false,
   isSmartMatchEnabled: false,
+  isPerformanceMode: false,
+  isGridView: false,
   toggleWaveform: () => set((state) => ({ isWaveformVisible: !state.isWaveformVisible })),
   toggleLibrary: () => set((state) => ({ isLibraryVisible: !state.isLibraryVisible })),
   toggleDeckA: () => set((state) => ({ isDeckAVisible: !state.isDeckAVisible })),
@@ -50,4 +56,6 @@ export const useUIStore = create<UIState>((set) => ({
   })),
   setShiftHeld: (held) => set((state) => (state.isShiftHeld === held ? state : { isShiftHeld: held })),
   toggleSmartMatch: () => set((state) => ({ isSmartMatchEnabled: !state.isSmartMatchEnabled })),
+  togglePerformanceMode: () => set((state) => ({ isPerformanceMode: !state.isPerformanceMode })),
+  toggleGridView: () => set((state) => ({ isGridView: !state.isGridView })),
 }));
