@@ -3,8 +3,23 @@
 import { useRef, useCallback, useEffect } from 'react';
 import { AudioEngine } from '@/lib/audioEngine';
 import { useMixerStore } from '@/store/mixerStore';
+import { useDeckStore } from '@/store/deckStore';
+import { getCompatibleKeys } from '@/lib/harmonicKeys';
+import { useShallow } from 'zustand/react/shallow';
 
 type MeterTarget = 'A' | 'B' | 'Master';
+
+/** Fraction of the FFT spectrum considered "low" (bass) for sparkline EQ display */
+const EQ_LOW_THRESHOLD = 0.1;
+/** Fraction of the FFT spectrum considered "mid" (upper boundary) for sparkline EQ display */
+const EQ_MID_THRESHOLD = 0.5;
+/** Sparkline circular buffer size — last N energy samples displayed per EQ band */
+const SPARKLINE_HISTORY_SIZE = 8;
+/** Jitter amplitude for stereo simulation on the R channel (fraction of low-freq energy) */
+const STEREO_JITTER_FACTOR = 0.06;
+/** Energy levels for sparkline color transitions (green → yellow → red) */
+const SPARKLINE_HIGH_ENERGY = 0.6;
+const SPARKLINE_MID_ENERGY = 0.3;
 
 const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -83,7 +98,106 @@ const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: b
   );
 };
 
-function EQKnob({ label, value, onChange }: { label: string; value: number; onChange: (val: number) => void }) {
+// ── Stereo Master VU Meter ──────────────────────────────────────────────────
+const StereoMasterMeter = () => {
+  const lContainerRef = useRef<HTMLDivElement>(null);
+  const rContainerRef = useRef<HTMLDivElement>(null);
+  const lSegsRef = useRef<HTMLDivElement[]>([]);
+  const rSegsRef = useRef<HTMLDivElement[]>([]);
+  const peakLRef = useRef(0);
+  const peakRRef = useRef(0);
+  const peakTimerLRef = useRef(0);
+  const peakTimerRRef = useRef(0);
+  const velLRef = useRef(0);
+  const velRRef = useRef(0);
+  const rafRef = useRef<number | null>(null);
+
+  const paintMeter = (
+    segs: HTMLDivElement[],
+    level: number,
+    peakRef: React.MutableRefObject<number>,
+    peakTimerRef: React.MutableRefObject<number>,
+    velRef: React.MutableRefObject<number>
+  ) => {
+    if (level > peakRef.current) {
+      peakRef.current = level;
+      velRef.current = 0;
+      peakTimerRef.current = 30;
+    } else {
+      if (peakTimerRef.current > 0) {
+        peakTimerRef.current -= 1;
+      } else {
+        velRef.current += 0.005;
+        peakRef.current = Math.max(0, peakRef.current - velRef.current);
+      }
+    }
+    const lit = Math.round(Math.min(1, level) * 12);
+    const peakIdx = Math.min(11, Math.floor(peakRef.current * 12));
+    segs.forEach((seg, idx) => {
+      const color = idx >= 10 ? '#E11D48' : idx >= 8 ? '#D4AF37' : '#22c55e';
+      const active = idx < lit || idx === peakIdx;
+      seg.style.backgroundColor = color;
+      seg.style.opacity = active ? (idx === peakIdx ? '1' : '0.9') : '0.1';
+      seg.style.boxShadow = active ? `0 0 6px ${color}` : 'none';
+    });
+  };
+
+  useEffect(() => {
+    const ensureSegs = () => {
+      if (lContainerRef.current)
+        lSegsRef.current = Array.from(lContainerRef.current.querySelectorAll<HTMLDivElement>('[data-seg]'));
+      if (rContainerRef.current)
+        rSegsRef.current = Array.from(rContainerRef.current.querySelectorAll<HTMLDivElement>('[data-seg]'));
+    };
+    ensureSegs();
+    const engine = AudioEngine.getInstance();
+
+    const tick = () => {
+      const { rms, low } = engine.getMasterEnergy();
+      // L channel = rms; R channel = rms + tiny jitter from low-freq energy
+      const jitter = (Math.random() * 2 - 1) * low * STEREO_JITTER_FACTOR;
+      const rLevel = Math.max(0, Math.min(1, rms + jitter));
+      paintMeter(lSegsRef.current, rms, peakLRef, peakTimerLRef, velLRef);
+      paintMeter(rSegsRef.current, rLevel, peakRRef, peakTimerRRef, velRRef);
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  const meterClass = 'flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5';
+  return (
+    <div className="flex gap-1 items-end">
+      <div className="text-[7px] text-slate-600 uppercase tracking-widest rotate-180 [writing-mode:vertical-rl] mb-1">L</div>
+      <div ref={lContainerRef} className={meterClass}>
+        {Array.from({ length: 12 }).map((_, idx) => (
+          <div key={idx} data-seg className="flex-1 rounded-[2px]" style={{ backgroundColor: '#0f172a', opacity: 0.1 }} />
+        ))}
+      </div>
+      <div ref={rContainerRef} className={meterClass}>
+        {Array.from({ length: 12 }).map((_, idx) => (
+          <div key={idx} data-seg className="flex-1 rounded-[2px]" style={{ backgroundColor: '#0f172a', opacity: 0.1 }} />
+        ))}
+      </div>
+      <div className="text-[7px] text-slate-600 uppercase tracking-widest rotate-180 [writing-mode:vertical-rl] mb-1">R</div>
+    </div>
+  );
+};
+
+// ── EQ Knob with optional sparkline canvas ──────────────────────────────────
+function EQKnob({
+  label,
+  value,
+  onChange,
+  sparklineCanvasRef,
+}: {
+  label: string;
+  value: number;
+  onChange: (val: number) => void;
+  sparklineCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
+}) {
   const isDragging = useRef(false);
   const startY = useRef(0);
   const startValue = useRef(0);
@@ -124,9 +238,20 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
       >
+        {/* Sparkline canvas — behind knob body, low opacity */}
+        {sparklineCanvasRef && (
+          <canvas
+            ref={sparklineCanvasRef}
+            width={28}
+            height={28}
+            className="absolute inset-0 w-full h-full rounded-full pointer-events-none z-0"
+            style={{ opacity: 0.45 }}
+          />
+        )}
+
         {/* Active Arc Visual Feedback */}
         <div
-          className="absolute -inset-1 rounded-full opacity-50 transition-opacity pointer-events-none"
+          className="absolute -inset-1 rounded-full opacity-50 transition-opacity pointer-events-none z-[5]"
           style={{
             background:
               value > 0
@@ -159,8 +284,59 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
   );
 }
 
+// ── Mix Opportunity Badge ───────────────────────────────────────────────────
+function MixOpportunityBadge() {
+  const { keyA, keyB } = useDeckStore(
+    useShallow((state) => ({
+      keyA: state.deckA.track?.key ?? '',
+      keyB: state.deckB.track?.key ?? '',
+    }))
+  );
+
+  if (!keyA || !keyB) return null;
+
+  const compatible = getCompatibleKeys(keyA.toUpperCase());
+  const isMatch = compatible.includes(keyB.toUpperCase());
+
+  return (
+    <div
+      className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider border ${
+        isMatch
+          ? 'bg-green-900/30 border-green-500/40 text-green-400'
+          : 'bg-slate-900/40 border-slate-600/30 text-slate-600'
+      }`}
+    >
+      <span>{isMatch ? '✓' : '✗'}</span>
+      <span>{isMatch ? 'KEY MATCH' : 'KEY CLASH'}</span>
+    </div>
+  );
+}
+
 export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, vaultAmbience, setEQ, setVolume, setCrossfader, setCrossfaderCurve, setVaultAmbience } = useMixerStore();
+
+  // ── Chassis pulse ref ───────────────────────────────────────────────────
+  const mixerOuterRef = useRef<HTMLDivElement>(null);
+  const chassisPulseRafRef = useRef<number | null>(null);
+
+  // ── EQ Sparkline canvas refs (A: high/mid/low, B: high/mid/low) ──────────
+  const sparklineAHighRef = useRef<HTMLCanvasElement | null>(null);
+  const sparklineAMidRef = useRef<HTMLCanvasElement | null>(null);
+  const sparklineALowRef = useRef<HTMLCanvasElement | null>(null);
+  const sparklineBHighRef = useRef<HTMLCanvasElement | null>(null);
+  const sparklineBMidRef = useRef<HTMLCanvasElement | null>(null);
+  const sparklineBLowRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Circular history buffers for EQ sparklines (SPARKLINE_HISTORY_SIZE samples each)
+  const freqHistoryRef = useRef({
+    aHigh: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    aMid: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    aLow: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    bHigh: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    bMid: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    bLow: new Array<number>(SPARKLINE_HISTORY_SIZE).fill(0),
+    writeIdx: 0,
+  });
 
   const isDraggingCrossfader = useRef(false);
   const crossfaderRef = useRef<HTMLDivElement>(null);
@@ -238,6 +414,109 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     setVolumeFromClientY(deckId, e.clientY);
   };
 
+  // ── Chassis Pulse + EQ Sparkline RAF ────────────────────────────────────
+  useEffect(() => {
+    const engine = AudioEngine.getInstance();
+    const masterBufLen = engine.masterAnalyser.frequencyBinCount;
+    const masterFreqData = new Uint8Array(masterBufLen);
+
+    const drawSparkline = (canvas: HTMLCanvasElement | null, history: number[]) => {
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const { width, height } = canvas;
+      ctx.clearRect(0, 0, width, height);
+      const barW = width / history.length;
+      history.forEach((val, i) => {
+        const barH = Math.max(1, val * height);
+        const hue = val > SPARKLINE_HIGH_ENERGY ? 0 : val > SPARKLINE_MID_ENERGY ? 45 : 120;
+        ctx.fillStyle = `hsla(${hue}, 90%, 55%, 0.8)`;
+        ctx.fillRect(i * barW, height - barH, barW - 1, barH);
+      });
+    };
+
+    const readBands = (freqData: Uint8Array, bufLen: number) => {
+      const segment = (start: number, end: number) => {
+        let sum = 0;
+        const count = end - start;
+        for (let i = start; i < end; i++) sum += freqData[i] / 255;
+        return count > 0 ? sum / count : 0;
+      };
+      const lowBoundary = Math.floor(bufLen * EQ_LOW_THRESHOLD);
+      const midBoundary = Math.floor(bufLen * EQ_MID_THRESHOLD);
+      return {
+        low: segment(0, lowBoundary),
+        mid: segment(lowBoundary, midBoundary),
+        high: segment(midBoundary, bufLen),
+      };
+    };
+
+    const tick = () => {
+      engine.masterAnalyser.getByteFrequencyData(masterFreqData);
+      const masterBands = readBands(masterFreqData, masterBufLen);
+
+      // Per-deck analysers for deck-specific sparklines
+      const analyserA = engine.getDeckAnalyser('A');
+      const analyserB = engine.getDeckAnalyser('B');
+
+      const deckABands = (() => {
+        if (!analyserA) return masterBands;
+        const d = new Uint8Array(analyserA.frequencyBinCount);
+        analyserA.getByteFrequencyData(d);
+        return readBands(d, d.length);
+      })();
+
+      const deckBBands = (() => {
+        if (!analyserB) return masterBands;
+        const d = new Uint8Array(analyserB.frequencyBinCount);
+        analyserB.getByteFrequencyData(d);
+        return readBands(d, d.length);
+      })();
+
+      // Write into circular buffers
+      const h = freqHistoryRef.current;
+      const idx = h.writeIdx;
+      h.aLow[idx] = deckABands.low;
+      h.aMid[idx] = deckABands.mid;
+      h.aHigh[idx] = deckABands.high;
+      h.bLow[idx] = deckBBands.low;
+      h.bMid[idx] = deckBBands.mid;
+      h.bHigh[idx] = deckBBands.high;
+      h.writeIdx = (idx + 1) % SPARKLINE_HISTORY_SIZE;
+
+      // Re-order history for display (oldest first)
+      const ordered = (arr: number[]) => {
+        const startIdx = h.writeIdx;
+        return [...arr.slice(startIdx), ...arr.slice(0, startIdx)];
+      };
+
+      drawSparkline(sparklineAHighRef.current, ordered(h.aHigh));
+      drawSparkline(sparklineAMidRef.current, ordered(h.aMid));
+      drawSparkline(sparklineALowRef.current, ordered(h.aLow));
+      drawSparkline(sparklineBHighRef.current, ordered(h.bHigh));
+      drawSparkline(sparklineBMidRef.current, ordered(h.bMid));
+      drawSparkline(sparklineBLowRef.current, ordered(h.bLow));
+
+      // Chassis pulse: drive outer div box-shadow from low-freq energy
+      if (mixerOuterRef.current) {
+        const glow = Math.round(masterBands.low * 30);
+        const alpha = (0.05 + masterBands.low * 0.35).toFixed(2);
+        mixerOuterRef.current.style.boxShadow = `0 0 ${10 + glow}px rgba(255,215,0,${alpha}), 0 10px 10px rgba(0,0,0,0.6)`;
+      }
+
+      chassisPulseRafRef.current = requestAnimationFrame(tick);
+    };
+
+    chassisPulseRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (chassisPulseRafRef.current) cancelAnimationFrame(chassisPulseRafRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    AudioEngine.getInstance().setVaultAmbience(vaultAmbience);
+  }, [vaultAmbience]);
+
   // Map crossfader value (-1 to 1) to left percentage (0% to 100%)
   const crossfaderLeft = `${((crossfader + 1) / 2) * 100}%`;
 
@@ -251,22 +530,21 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     AudioEngine.getInstance().setVaultAmbience(clamped);
   };
 
-  useEffect(() => {
-    AudioEngine.getInstance().setVaultAmbience(vaultAmbience);
-  }, [vaultAmbience]);
-
   return (
-    <div className={compact ? 'h-full deck-chassis rounded-xl border border-studio-gold/20 p-2 flex flex-col items-center gap-3 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'deck-chassis rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl'}>
+    <div
+      ref={mixerOuterRef}
+      className={compact ? 'h-full deck-chassis rounded-xl border border-studio-gold/20 p-2 flex flex-col items-center gap-3 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'deck-chassis rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl'}
+    >
       <div className={compact ? 'grid grid-cols-2 gap-3 w-full' : 'grid grid-cols-2 gap-4 w-full'}>
         <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
-          <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />
-          <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} />
-          <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} />
+          <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} sparklineCanvasRef={sparklineAHighRef} />
+          <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} sparklineCanvasRef={sparklineAMidRef} />
+          <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} sparklineCanvasRef={sparklineALowRef} />
         </div>
         <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
-          <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} />
-          <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} />
-          <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} />
+          <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} sparklineCanvasRef={sparklineBHighRef} />
+          <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} sparklineCanvasRef={sparklineBMidRef} />
+          <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} sparklineCanvasRef={sparklineBLowRef} />
         </div>
       </div>
       <div className={compact ? 'flex justify-center gap-3 w-full px-1' : 'flex justify-center gap-4 w-full px-2'}>
@@ -322,6 +600,10 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         <VUMeter deckId="B" compact={compact} />
       </div>
       <div className={compact ? 'w-full px-1 mt-auto' : 'w-full px-2 mt-auto'}>
+        {/* Mix Opportunity Badge */}
+        <div className="flex justify-center mb-2">
+          <MixOpportunityBadge />
+        </div>
         <div
           className={compact ? 'h-7 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           ref={crossfaderRef}
@@ -376,7 +658,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
         </div>
         <div className="mt-4 flex justify-center">
-          <VUMeter deckId="Master" />
+          <StereoMasterMeter />
         </div>
       </div>
     </div>

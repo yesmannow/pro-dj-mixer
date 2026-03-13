@@ -215,4 +215,25 @@
     pointer-events: none;
     z-index: 10;
   }
+
+  @keyframes record-blink {
+    0%, 49% { opacity: 1; }
+    50%, 100% { opacity: 0; }
+  }
+  .record-led-blink {
+    animation: record-blink 0.8s step-start infinite;
+  }
+
+  @keyframes chassis-pulse {
+    0% { box-shadow: 0 0 10px rgba(0,0,0,0.8), 0 10px 10px rgba(0,0,0,0.6); }
+    100% { box-shadow: 0 0 30px rgba(255,215,0,0.3), 0 10px 10px rgba(0,0,0,0.6); }
+  }
+
+  @keyframes db-led-pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+  .db-led-loading {
+    animation: db-led-pulse 1s ease-in-out infinite;
+  }
 }

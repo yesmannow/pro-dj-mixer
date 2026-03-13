@@ -12,6 +12,7 @@ export class AudioEngine {
   private masterDataArray: Uint8Array<ArrayBuffer>;
   private workletReadyPromise: Promise<boolean> | null = null;
   private workletWarningLogged = false;
+  private recordingDestination: MediaStreamAudioDestinationNode | null = null;
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
   private decks: Record<'A' | 'B', {
@@ -97,6 +98,10 @@ export class AudioEngine {
 
     this.bunkerDryGain.connect(this.context.destination);
     this.bunkerWetGain.connect(this.context.destination);
+
+    // Recording tap: connect masterGain to a MediaStreamDestination before the analyser
+    this.recordingDestination = this.context.createMediaStreamDestination();
+    this.masterGain.connect(this.recordingDestination);
 
     this.workletReadyPromise = this.ensureAudioWorklets();
     void this.loadBunkerImpulse();
@@ -593,6 +598,10 @@ export class AudioEngine {
     if (fxBus) {
       fxBus.output.disconnect();
     }
+  }
+
+  public getRecordingStream(): MediaStream | null {
+    return this.recordingDestination ? this.recordingDestination.stream : null;
   }
 
   public getCrossfaderGains(
