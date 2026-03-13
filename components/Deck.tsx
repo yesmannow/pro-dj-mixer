@@ -726,7 +726,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
               type="button"
               className={clsx('stem-led', isActive && 'stem-led-active')}
               style={{ ['--stem-color' as string]: colors[stem] }}
-              onClick={() => toggleStem(deckId, stemKeyMap[stem])}
+              onClick={() => { toggleStem(deckId, stemKeyMap[stem]); if (navigator.vibrate) navigator.vibrate(20); }}
             >
               {stem}
             </button>
@@ -742,6 +742,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           <div className={compact ? 'flex flex-wrap items-center justify-center gap-2 w-full' : 'flex flex-wrap items-center justify-center gap-4 w-full'}>
              <MagneticButton
                strength={60}
+               onClick={() => { if (navigator.vibrate) navigator.vibrate(20); }}
                className={compact ? 'shrink-0 h-9 w-14 rounded-lg bg-[#050505] border-2 text-slate-100 shadow-[0_4px_0_rgba(212,175,55,0.45)] flex flex-col items-center justify-center text-[10px] font-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_rgba(212,175,55,0.45)] touch-none' : 'shrink-0 w-20 h-12 rounded-lg bg-[#050505] border-2 text-slate-100 shadow-[0_6px_0_rgba(212,175,55,0.45)] flex flex-col items-center justify-center font-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_rgba(212,175,55,0.45)] touch-none'}
                style={{
                  borderColor: deckTheme.primary,
@@ -755,7 +756,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
              </MagneticButton>
              <MagneticButton
                strength={60}
-               onClick={() => toggleSync(deckId)}
+               onClick={() => { toggleSync(deckId); if (navigator.vibrate) navigator.vibrate(20); }}
                disabled={!track}
                className={clsx(
                  compact
