@@ -9,8 +9,8 @@
   --color-background: #050505;
   --color-studio-black: #050505;
   --color-studio-slate: #1A1610;
-  --color-studio-gold: #D4AF37;
-  --color-studio-crimson: #E11D48;
+  --color-studio-gold: #FFD700;
+  --color-studio-crimson: #FF003C;
   --font-display: var(--font-heading), sans-serif;
   --font-mono: var(--font-mono), monospace;
 }
@@ -23,38 +23,31 @@
   --color-background: #050505;
   --color-studio-black: #050505;
   --color-studio-slate: #1A1610;
-  --color-studio-gold: #D4AF37;
-  --color-studio-crimson: #E11D48;
+  --color-studio-gold: #FFD700;
+  --color-studio-crimson: #FF003C;
+  --glass-border: rgba(255, 255, 255, 0.08);
   --font-display: var(--font-heading), sans-serif;
   --font-mono: var(--font-mono), monospace;
 }
 
 
 @layer utilities {
-  .jog-wheel {
-    background: conic-gradient(from 0deg, #0f0d0a, #050505, #0f0d0a);
-    box-shadow: inset 0 0 40px rgba(0,0,0,0.85), 0 0 10px rgba(212,175,55,0.18);
-  }
   .neon-glow {
-    box-shadow: 0 0 15px rgba(212, 175, 55, 0.45);
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.45);
   }
   .neon-text-glow {
-    text-shadow: 0 0 10px rgba(212,175,55,0.7);
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.7);
     opacity: 0.9;
   }
 
-  .vinyl-record {
-    background: radial-gradient(circle, #222 0%, #111 30%, #222 35%, #111 70%, #333 100%);
-    position: relative;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+  .deck-chassis {
+    background: linear-gradient(145deg, #0a0a0a, #121212);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), 0 10px 10px rgba(0, 0, 0, 0.6);
   }
-  .vinyl-record::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%, rgba(255,255,255,0.1) 100%);
-    pointer-events: none;
+
+  .library-container {
+    backdrop-filter: blur(20px);
+    background: rgba(0, 0, 0, 0.7);
   }
 
   /* Brutalist Rubberized Pad Styles */
@@ -69,10 +62,10 @@
   .mpc-pad {
     aspect-ratio: 1 / 1;
     border-radius: 2px;
-    background: radial-gradient(circle at center, #1a1a1a 0%, #111111 100%);
+    background: radial-gradient(circle at center, #222 0%, #111 100%);
     border: 1px solid #222;
+    border-bottom: 4px solid #000;
     box-shadow:
-      0 4px 0 0 #000000,
       inset 0 1px 1px rgba(255, 255, 255, 0.05);
     position: relative;
     transition: all 0.05s ease;
@@ -83,12 +76,15 @@
   .mpc-pad:active,
   .mpc-pad-pressed {
     transform: translateY(3px);
+    border-bottom-width: 1px;
     box-shadow: 0 1px 0 0 #000000;
     background: #ffffff !important;
   }
 
-  .mpc-pad-set-A { border-color: #D4AF37; box-shadow: 0 0 12px rgba(212, 175, 55, 0.3), 0 4px 0 0 #000; }
-  .mpc-pad-set-B { border-color: #E11D48; box-shadow: 0 0 12px rgba(225, 29, 72, 0.3), 0 4px 0 0 #000; }
+  .mpc-pad-active {
+    box-shadow: 0 0 18px var(--deck-primary, #FFD700), 0 0 6px var(--deck-primary, #FFD700);
+    border-color: var(--deck-primary, #FFD700);
+  }
 
   .mpc-label {
     position: absolute;
@@ -102,9 +98,44 @@
   }
 
   .del-mode {
-    background: rgba(225, 29, 72, 0.2);
-    border-color: #E11D48;
-    color: #E11D48;
+    background: rgba(255, 0, 60, 0.2);
+    border-color: #FF003C;
+    color: #FF003C;
+  }
+
+  .stem-led {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid #333;
+    background: #111;
+    opacity: 0.35;
+    transition: all 0.15s ease;
+    cursor: pointer;
+    font-size: 7px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-transform: uppercase;
+    color: #555;
+  }
+
+  .stem-led-active {
+    opacity: 1;
+    border-color: var(--stem-color, #FFD700);
+    background: var(--stem-color, #FFD700);
+    color: #000;
+    box-shadow: 0 0 14px var(--stem-color, #FFD700), 0 0 4px var(--stem-color, #FFD700);
+  }
+
+  @keyframes pending-pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+  }
+  .pending-analysis {
+    animation: pending-pulse 1.8s ease-in-out infinite;
   }
 
   /* Deck containment to prevent jogwheel bleed */
@@ -143,6 +174,9 @@
 
   .crt-scanlines {
     background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.4) 50%);
+    background-size: 100% 4px;
+    pointer-events: none;
+    z-index: 100;
   }
   @keyframes scanline-scroll {
     0% { transform: translateY(-100%); }
@@ -152,7 +186,7 @@
     animation: scanline-scroll 12s linear infinite;
   }
   .chromatic-aberration {
-    text-shadow: 2px 0 0 rgba(225,29,72,0.5), -2px 0 0 rgba(212,175,55,0.6);
+    text-shadow: 2px 0 0 rgba(255,0,60,0.5), -2px 0 0 rgba(255,215,0,0.6);
   }
 
   @keyframes hum-bar {
@@ -164,19 +198,17 @@
     animation: hum-bar 9s linear infinite;
   }
 
-  .crt-scanlines {
-    background: linear-gradient(to bottom, transparent 50%, rgba(0, 0, 0, 0.4) 50%);
+  .crt-scanline-overlay {
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px,
+      transparent 2px,
+      rgba(0, 0, 0, 0.12) 2px,
+      rgba(0, 0, 0, 0.12) 4px
+    );
     pointer-events: none;
-    z-index: 100;
-  }
-  @keyframes scanline-scroll { 
-    0% { transform: translateY(-100%); } 
-    100% { transform: translateY(100%); } 
-  }
-  .animate-scanline-scroll { 
-    animation: scanline-scroll 12s linear infinite; 
-  }
-  .chromatic-aberration {
-    text-shadow: 2px 0 0 rgba(255,0,0,0.5), -2px 0 0 rgba(0,255,255,0.5);
+    z-index: 10;
   }
 }

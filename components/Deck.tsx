@@ -153,6 +153,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
+  const [stemLeds, setStemLeds] = useState<Record<string, boolean>>({ VOC: false, DRM: false, INST: false });
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
   const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
   const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
@@ -548,7 +549,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, []);
 
   const renderJogWheel = () => (
-    <div className="jogwheel-wrapper flex flex-col gap-4 items-center">
+    <div className="jogwheel-wrapper flex flex-col gap-4 items-center deck-chassis rounded-2xl p-4">
       <div className={compact ? 'relative h-36 w-36 sm:h-40 sm:w-40' : 'relative w-64 h-64'}>
         {splineStatus !== 'ready' && (
           <div
@@ -642,7 +643,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     <section
       ref={containerRef}
       className={clsx(
-        'deck-container bg-studio-slate/90 backdrop-blur-xl rounded-xl border flex flex-col transition-colors duration-300 touch-none select-none shadow-2xl transform',
+        'deck-container deck-chassis rounded-xl border flex flex-col transition-colors duration-300 touch-none select-none shadow-2xl transform',
         compact ? 'deck-container--compact h-full gap-3 p-3.5' : 'gap-4 p-6',
         isDragOver
           ? "scale-[1.02] ring-2 ring-offset-0 ring-studio-gold border-transparent"
@@ -664,15 +665,18 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
         Drag and drop a track onto this deck to load it.
       </p>
       {!compact && (
-        <OverviewWaveform
-          deckId={deckId}
-          duration={duration}
-          currentTime={currentTime}
-          track={track}
-          accentColor={deckStroke}
-          compact={compact}
-          onScrubTo={handleOverviewScrub}
-        />
+        <div className="relative">
+          <OverviewWaveform
+            deckId={deckId}
+            duration={duration}
+            currentTime={currentTime}
+            track={track}
+            accentColor={deckStroke}
+            compact={compact}
+            onScrubTo={handleOverviewScrub}
+          />
+          <div className="crt-scanline-overlay rounded" />
+        </div>
       )}
       <div className={compact ? 'flex items-start justify-between gap-3 text-slate-100' : 'flex items-center justify-between text-slate-100'}>
         <div>
@@ -686,7 +690,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </h3>
           <div className={compact ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
             <p className={compact ? 'text-[11px] text-slate-300' : 'text-slate-300 text-[length:var(--step-0)]'}>
-              {artist} • <span className="font-mono font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span className="font-mono font-bold text-slate-100">{keySignature}</span>
+              {artist} • <span style={{ fontFamily: 'var(--font-mono)' }} className="font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span style={{ fontFamily: 'var(--font-mono)' }} className="font-bold text-slate-100">{keySignature}</span>
             </p>
             <button
               onClick={handleTap}
@@ -698,9 +702,29 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </div>
         </div>
         <div className="text-right">
-          <p className={compact ? 'font-mono font-bold text-slate-200 tabular-nums neon-text-glow text-base' : 'font-mono font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]'}>{timeRemaining}</p>
+          <p className={compact ? 'font-bold text-slate-200 tabular-nums neon-text-glow text-base' : 'font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]'} style={{ fontFamily: 'var(--font-mono)' }}>{timeRemaining}</p>
           <p className={compact ? 'text-slate-500 text-[9px] uppercase tracking-[0.2em]' : 'text-slate-500 text-[10px] uppercase tracking-widest'}>Remaining</p>
         </div>
+      </div>
+
+      {/* Stem LEDs */}
+      <div className={compact ? 'flex items-center gap-2' : 'flex items-center gap-3'}>
+        {(['VOC', 'DRM', 'INST'] as const).map((stem) => {
+          const colors: Record<string, string> = { VOC: '#00BFFF', DRM: '#FF003C', INST: '#FFD700' };
+          const isActive = stemLeds[stem];
+          return (
+            <button
+              key={stem}
+              type="button"
+              className={clsx('stem-led', isActive && 'stem-led-active')}
+              style={{ ['--stem-color' as string]: colors[stem] }}
+              onClick={() => setStemLeds((prev) => ({ ...prev, [stem]: !prev[stem] }))}
+            >
+              {stem}
+            </button>
+          );
+        })}
+        <span className="text-[8px] uppercase tracking-[0.2em] text-slate-600 ml-1">Stems</span>
       </div>
 
       <div className={compact ? 'grid min-h-0 flex-1 grid-cols-[minmax(132px,148px)_minmax(0,1fr)_64px] items-start gap-3 py-1' : 'grid min-h-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_76px] items-start gap-4 py-2'}>

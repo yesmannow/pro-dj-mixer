@@ -69,6 +69,7 @@ export function PerformancePads({
           const padClasses = clsx(
             'mpc-pad relative overflow-hidden touch-none select-none focus:outline-none',
             isPressed && 'mpc-pad-pressed',
+            isActive && !isPressed && 'mpc-pad-active',
             shiftHeld && isActive && 'del-mode'
           );
 
@@ -79,8 +80,8 @@ export function PerformancePads({
               whileTap={{ scale: 0.95 }}
               className={padClasses}
               style={{
-                borderColor: accentColor ?? (deckId === 'A' ? '#D4AF37' : '#E11D48'),
-                boxShadow: `0 0 12px rgba(${accentRgb ?? (deckId === 'A' ? '212,175,55' : '225,29,72')}, 0.3), 0 4px 0 0 #000`,
+                borderColor: accentColor ?? (deckId === 'A' ? '#FFD700' : '#FF003C'),
+                ['--deck-primary' as string]: accentColor ?? (deckId === 'A' ? '#FFD700' : '#FF003C'),
               }}
               onPointerDown={(e) => {
                 setPointerPressed((prev) => {
