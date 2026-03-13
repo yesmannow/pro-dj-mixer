@@ -312,6 +312,26 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
 
       <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20'}>
         <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex gap-4 items-center overflow-x-auto no-scrollbar'}>
+          {/* DB Sync LED */}
+          <div
+            className={clsx(
+              'flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-bold uppercase tracking-wider flex-shrink-0',
+              isProcessingQueue
+                ? 'border-amber-500/50 text-amber-400 bg-amber-900/20 db-led-loading'
+                : tracks.length > 0
+                ? 'border-green-500/40 text-green-400 bg-green-900/20'
+                : 'border-slate-700 text-slate-600 bg-slate-900/20'
+            )}
+            title={isProcessingQueue ? 'Syncing to IndexedDB…' : `${tracks.length} tracks in DB`}
+          >
+            <span
+              className={clsx(
+                'w-1.5 h-1.5 rounded-full flex-shrink-0',
+                isProcessingQueue ? 'bg-amber-400' : tracks.length > 0 ? 'bg-green-400' : 'bg-slate-600'
+              )}
+            />
+            DB
+          </div>
           <button
             onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
             className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}

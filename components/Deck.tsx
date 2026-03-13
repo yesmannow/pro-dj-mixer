@@ -26,6 +26,8 @@ interface DeckProps {
 
 const SPLINE_SCENE_URL = 'https://prod.spline.design/NuXDSBxPTsCkXbkq/scene.splinecode';
 const SPLINE_LOAD_TIMEOUT_MS = 4000;
+/** Seconds for one full platter revolution at 1× (normal) playback speed (33⅓ RPM ≈ 1.8 s/rev) */
+const PLATTER_REVOLUTION_SECONDS = 1.8;
 
 class SplineErrorBoundary extends Component<
   { children: ReactNode; onError: () => void },
@@ -162,6 +164,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
+  const [keyLock, setKeyLock] = useState(false);
   const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
   const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
   const [deckTheme, setDeckTheme] = useState<DeckTheme>(DEFAULT_DECK_THEME[deckId]);
@@ -248,6 +251,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const jogWheelRef = useRef<HTMLDivElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
+  const pitchPercentRef = useRef(pitchPercent);
   const lastMoveTimeRef = useRef<number>(0);
   const lastDeltaRef = useRef<number>(0);
   const platterNodeRef = useRef<any>(null);
@@ -390,9 +394,9 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     lastDeltaRef.current = deltaAngle / Math.max(1, now - lastMoveTimeRef.current);
     lastMoveTimeRef.current = now;
 
-    // Time delta: 33.333 RPM = 1.8 seconds per revolution.
-    // So deltaTime = deltaAngle / 360 * 1.8
-    const timeDelta = (deltaAngle / 360) * 1.8;
+    // Time delta: 33.333 RPM = PLATTER_REVOLUTION_SECONDS per revolution.
+    // So deltaTime = deltaAngle / 360 * PLATTER_REVOLUTION_SECONDS
+    const timeDelta = (deltaAngle / 360) * PLATTER_REVOLUTION_SECONDS;
     scrubTrack(timeDelta);
 
     // Subtle haptic feedback when scratching
@@ -502,10 +506,16 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, [currentTime]);
 
   useEffect(() => {
+    pitchPercentRef.current = pitchPercent;
+  }, [pitchPercent]);
+
+  useEffect(() => {
     let raf: number;
     const tick = () => {
       const combinedTime = currentTimeRef.current + scratchOffsetRef.current;
-      const baseRadians = -((combinedTime) / 1.8) * (Math.PI * 2);
+      const playbackRate = 1 + pitchPercentRef.current / 100;
+      // PLATTER_REVOLUTION_SECONDS = seconds per revolution at 1× speed; divide by playbackRate for pitch-accurate spin
+      const baseRadians = -((combinedTime) / (PLATTER_REVOLUTION_SECONDS / Math.max(0.01, playbackRate))) * (Math.PI * 2);
       const jitter = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.002 : 0;
       const node = platterNodeRef.current;
       if (node) {
@@ -544,7 +554,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     platterNodeRef.current = nextPlatterNode;
     setSplineStatus('ready');
     if (nextPlatterNode) {
-      const radians = ((currentTime / 1.8) * 360 + scratchOffsetRef.current) * (Math.PI / 180);
+      const radians = ((currentTime / PLATTER_REVOLUTION_SECONDS) * 360 + scratchOffsetRef.current) * (Math.PI / 180);
       nextPlatterNode.rotation.y = radians;
     }
   };
@@ -789,6 +799,25 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
                }}
              >
                <Play className={clsx(compact ? 'h-5 w-5' : 'w-6 h-6', isPlaying ? 'fill-slate-900' : 'fill-slate-200')} />
+             </MagneticButton>
+             {/* Key Lock Toggle */}
+             <MagneticButton
+               strength={40}
+               onClick={() => setKeyLock((prev) => !prev)}
+               className={clsx(
+                 compact
+                   ? 'shrink-0 h-9 w-14 rounded-lg flex flex-col items-center justify-center text-[10px] font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner'
+                   : 'shrink-0 w-20 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner',
+               )}
+               style={{
+                 borderColor: keyLock ? deckTheme.primary : `rgba(${deckTheme.primaryRgb}, 0.3)`,
+                 color: keyLock ? deckTheme.primary : '#64748b',
+                 background: keyLock ? `rgba(${deckTheme.primaryRgb}, 0.12)` : undefined,
+                 boxShadow: keyLock ? `0 0 10px rgba(${deckTheme.primaryRgb}, 0.3)` : undefined,
+               }}
+             >
+               <span className="text-[9px] leading-none">{keyLock ? 'KEY' : 'VINYL'}</span>
+               <span className="text-[7px] leading-none mt-0.5 opacity-60">{keyLock ? 'LOCK' : 'MODE'}</span>
              </MagneticButton>
           </div>
         </div>
