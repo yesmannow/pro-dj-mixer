@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
 import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
@@ -22,7 +22,7 @@ const PendingAnalysis = () => (
   </span>
 );
 
-export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
+export const Library = memo(function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
@@ -76,8 +76,12 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
 
   const masterDeck = deckA.isPlaying ? deckA : (deckB.isPlaying ? deckB : deckA);
 
-  // Compute compatible keys for harmonic highlighting
-  const compatibleKeys = masterDeck.track?.key ? getCompatibleKeys(masterDeck.track.key.toUpperCase()) : [];
+  // Compute compatible keys for harmonic highlighting — only when the master deck's
+  // track changes, not on every render or animation frame.
+  const compatibleKeys = useMemo(
+    () => masterDeck.track?.key ? getCompatibleKeys(masterDeck.track.key.toUpperCase()) : [],
+    [masterDeck.track],
+  );
 
   const isTrackHarmonicMatch = (trackKey: string | undefined) =>
     masterDeck.isPlaying && masterDeck.track?.key && trackKey
@@ -852,4 +856,4 @@ export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
       </div>
     </div>
   );
-}
+});

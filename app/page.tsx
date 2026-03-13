@@ -8,6 +8,7 @@ import { ParallelWaveforms } from '@/components/ParallelWaveforms';
 import { PhraseDisplay } from '@/components/PhraseDisplay';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
+import { useShallow } from 'zustand/react/shallow';
 import { ChevronUp, Settings, Zap } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
@@ -34,8 +35,10 @@ export default function Home() {
     togglePerformanceMode,
   } = useUIStore();
 
-  const deckA = useDeckStore((s) => ({ isPlaying: s.deckA.isPlaying, bpm: Number(s.deckA.track?.bpm) || 0, currentTime: s.deckA.currentTime }));
-  const deckB = useDeckStore((s) => ({ isPlaying: s.deckB.isPlaying, bpm: Number(s.deckB.track?.bpm) || 0, currentTime: s.deckB.currentTime }));
+  // Omit currentTime from these selectors — PhraseDisplay subscribes to it directly,
+  // isolating the 30 Hz re-renders to that small component instead of the whole page.
+  const deckA = useDeckStore(useShallow((s) => ({ isPlaying: s.deckA.isPlaying, bpm: Number(s.deckA.track?.bpm) || 0 })));
+  const deckB = useDeckStore(useShallow((s) => ({ isPlaying: s.deckB.isPlaying, bpm: Number(s.deckB.track?.bpm) || 0 })));
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
@@ -135,10 +138,10 @@ export default function Home() {
                       <div className="flex items-center gap-4">
                         <h2 className="text-sm font-bold text-white tracking-tight">WAVEFORMS</h2>
                         {deckA.isPlaying && deckA.bpm > 0 && (
-                          <PhraseDisplay bpm={deckA.bpm} currentTime={deckA.currentTime} label="A" />
+                          <PhraseDisplay bpm={deckA.bpm} deckId="A" label="A" />
                         )}
                         {deckB.isPlaying && deckB.bpm > 0 && (
-                          <PhraseDisplay bpm={deckB.bpm} currentTime={deckB.currentTime} label="B" />
+                          <PhraseDisplay bpm={deckB.bpm} deckId="B" label="B" />
                         )}
                       </div>
                       <div className="flex items-center gap-2">
