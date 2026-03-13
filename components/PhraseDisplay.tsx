@@ -1,5 +1,7 @@
 'use client';
 
+import { useDeckStore } from '@/store/deckStore';
+
 /** Standard phrase length in beats (8 bars × 4 beats). Most electronic/pop music uses 8-bar phrases. */
 const BEATS_PER_PHRASE = 32;
 /** Alert threshold: pulse red when this many bars or fewer remain */
@@ -7,15 +9,22 @@ const URGENT_BARS_THRESHOLD = 4;
 
 interface PhraseDisplayProps {
   bpm: number;
-  currentTime: number;
+  deckId: 'A' | 'B';
   label: string;
 }
 
 /**
  * Predictive Phrase Display: shows remaining bars in a 32-beat phrase.
  * Pulses red when 4 bars (16 beats) remain.
+ *
+ * Subscribes to `currentTime` directly from deckStore so the parent component does NOT
+ * need to forward it — isolating the 30 Hz re-renders to this small component only.
  */
-export function PhraseDisplay({ bpm, currentTime, label }: Readonly<PhraseDisplayProps>) {
+export function PhraseDisplay({ bpm, deckId, label }: Readonly<PhraseDisplayProps>) {
+  const currentTime = useDeckStore(
+    (s) => (deckId === 'A' ? s.deckA.currentTime : s.deckB.currentTime),
+  );
+
   if (!bpm || bpm <= 0) return null;
 
   const secondsPerBeat = 60 / bpm;

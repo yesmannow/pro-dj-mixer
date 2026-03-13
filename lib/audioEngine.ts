@@ -548,6 +548,53 @@ export class AudioEngine {
     };
   }
 
+  /**
+   * Explicitly disconnects all AudioNodes associated with `deckId`.
+   * Call this when a track is unmounted to prevent "setState on unmounted component"
+   * warnings and to release Web Audio API resources.
+   */
+  public disconnectDeck(deckId: 'A' | 'B') {
+    const deck = this.decks[deckId];
+
+    // Stop and disconnect the active playback source.
+    if (deck.source) {
+      try {
+        deck.source.stop();
+      } catch {
+        // Source may already be stopped — ignore.
+      }
+      deck.source.disconnect();
+      deck.source = null;
+    }
+
+    // Disconnect stem gain nodes.
+    const stemGains = this.stemGains[deckId];
+    if (stemGains) {
+      stemGains.drums.disconnect();
+      stemGains.inst.disconnect();
+      stemGains.vocals.disconnect();
+    }
+
+    // Disconnect the stem chain input/output.
+    const stemChain = this.stemChains[deckId];
+    if (stemChain) {
+      stemChain.input.disconnect();
+      stemChain.output.disconnect();
+    }
+
+    // Disconnect the per-deck analyser.
+    const analyser = this.deckAnalysers[deckId];
+    if (analyser) {
+      analyser.disconnect();
+    }
+
+    // Disconnect the FX bus output from the master chain.
+    const fxBus = this.deckFxBuses[deckId];
+    if (fxBus) {
+      fxBus.output.disconnect();
+    }
+  }
+
   public getCrossfaderGains(
     crossfaderValue: number,
     curve: 'blend' | 'cut' = 'blend'

@@ -9,6 +9,9 @@ import { AudioEngine } from '@/lib/audioEngine';
  */
 const RMS_TO_VISUAL_SCALE = 3;
 
+/** Minimum milliseconds between volumeScale state updates to prevent re-render loops. */
+const VOLUME_THROTTLE_MS = 200;
+
 export interface FrequencyRGB {
   red: number;   // Bass energy (0-255)
   green: number; // Mid/Vocal energy (0-255)
@@ -40,25 +43,37 @@ const getFrequencyData = (analyser: AnalyserNode): FrequencyRGB => {
 };
 
 /**
- * Returns a `volumeScale` (0.0 – 1.0) and `frequencyRGB` derived from the deck's AnalyserNode,
- * updated once per animation frame to keep the UI thread smooth.
+ * Returns a `volumeScale` (0.0 – 1.0) for the deck's AnalyserNode.
+ *
+ * Frequency RGB data is stored in `frequencyRGBRef` (a ref, not state) and updated on every
+ * animation frame so that canvas-based consumers can read it without triggering re-renders.
+ *
+ * `volumeScale` state is throttled to at most once per 200 ms to avoid the infinite
+ * re-render loop (React Error #185) that occurs when setState is called at 60 fps.
  */
 export function useAudioAnalyzer(deckId: 'A' | 'B') {
   const [volumeScale, setVolumeScale] = useState(0);
-  const [frequencyRGB, setFrequencyRGB] = useState<FrequencyRGB>({ red: 0, green: 0, blue: 0 });
+  // Frequency data lives in a ref — canvas consumers read it directly, no React re-renders.
+  const frequencyRGBRef = useRef<FrequencyRGB>({ red: 0, green: 0, blue: 0 });
   const rafRef = useRef<number | null>(null);
+  const lastThrottleRef = useRef<number>(0);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
 
-    const tick = () => {
+    const tick = (timestamp: number) => {
       const { rms } = engine.getDeckEnergy(deckId);
-      setVolumeScale(Math.min(1, rms * RMS_TO_VISUAL_SCALE));
 
-      // Read RGB frequency bins from the deck analyser
+      // Update frequency data into a ref — zero React re-renders
       const analyser = engine.getDeckAnalyser(deckId);
       if (analyser) {
-        setFrequencyRGB(getFrequencyData(analyser));
+        frequencyRGBRef.current = getFrequencyData(analyser);
+      }
+
+      // Throttle volumeScale state update to once per VOLUME_THROTTLE_MS
+      if (timestamp - lastThrottleRef.current >= VOLUME_THROTTLE_MS) {
+        setVolumeScale(Math.min(1, rms * RMS_TO_VISUAL_SCALE));
+        lastThrottleRef.current = timestamp;
       }
 
       rafRef.current = requestAnimationFrame(tick);
@@ -74,5 +89,5 @@ export function useAudioAnalyzer(deckId: 'A' | 'B') {
     };
   }, [deckId]);
 
-  return { volumeScale, frequencyRGB };
+  return { volumeScale, frequencyRGBRef };
 }
