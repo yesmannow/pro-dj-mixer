@@ -824,7 +824,11 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
               </MagneticButton>
            </div>
            {keyLock && !keyLockSupported && (
-             <div className="mt-2 text-[10px] uppercase tracking-[0.2em] text-studio-crimson oled-display">
+             <div
+               role="alert"
+               aria-live="polite"
+               className="mt-2 text-[10px] uppercase tracking-[0.2em] text-studio-crimson oled-display"
+             >
                Key lock not supported: pitch changes with tempo.
              </div>
            )}

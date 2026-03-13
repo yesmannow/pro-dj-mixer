@@ -3,22 +3,27 @@ import { db, CuePoint, Track } from '@/lib/db';
 import { useDeckStore } from '@/store/deckStore';
 
 type CueTrackRef = number | Partial<Pick<Track, 'id' | 'sourceId' | 'audioUrl' | 'title' | 'artist' | 'duration'>>;
+const CUE_HASH_SEPARATOR = '\x1F';
 
 const normalizeCues = (cues: CuePoint[]) => cues.slice().sort((a, b) => a.slot - b.slot);
+const getTrackId = (track: CueTrackRef) => (typeof track === 'number' ? track : track.id);
 
 const getCueTrackHash = (track: CueTrackRef) => {
   if (typeof track === 'number') {
     return `track-id:${track}`;
   }
 
+  // Use an ASCII unit separator so the fallback key stays deterministic without colliding with
+  // ordinary user-entered metadata like titles, artist names, or filenames.
   const source =
     track.sourceId ||
     track.audioUrl ||
-    JSON.stringify({
-      title: track.title ?? 'untitled',
-      artist: track.artist ?? 'unknown',
-      id: track.id ?? 'pending',
-    });
+    [
+      `title=${track.title ?? 'untitled'}`,
+      `artist=${track.artist ?? 'unknown'}`,
+      `duration=${track.duration ?? 'unknown-duration'}`,
+      `id=${track.id ?? 'pending'}`,
+    ].join(CUE_HASH_SEPARATOR);
 
   return `track:${source}`;
 };
@@ -69,7 +74,7 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
   loadCues: async (track: CueTrackRef) => {
     set({ loading: true });
     const trackHash = getCueTrackHash(track);
-    const trackId = typeof track === 'number' ? track : track.id;
+    const trackId = getTrackId(track);
     try {
       const indexedDbCues =
         typeof trackId === 'number'
@@ -113,7 +118,7 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
 
   setCue: async (track: CueTrackRef, slot: number, time: number, type: 'hot' | 'memory') => {
     const trackHash = getCueTrackHash(track);
-    const trackId = typeof track === 'number' ? track : track.id;
+    const trackId = getTrackId(track);
     const updatedAt = Date.now();
     const newCue: CuePoint = {
       slot,
@@ -156,7 +161,7 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
 
   clearCue: async (track: CueTrackRef, slot: number) => {
     const trackHash = getCueTrackHash(track);
-    const trackId = typeof track === 'number' ? track : track.id;
+    const trackId = getTrackId(track);
     try {
       if (typeof trackId === 'number') {
         const existing = await db.cuePoints

@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react';
 import { AudioEngine } from '@/lib/audioEngine';
 
+const STATS_REFRESH_INTERVAL_MS = 1000;
+const formatLatencyHint = (latencyHint: string | number) =>
+  typeof latencyHint === 'number' ? `${latencyHint.toFixed(4)} s` : latencyHint;
+
 export function AudioStats() {
   const [isOpen, setIsOpen] = useState(false);
   const [stats, setStats] = useState<ReturnType<AudioEngine['getAudioStats']> | null>(null);
@@ -12,7 +16,7 @@ export function AudioStats() {
     const refresh = () => setStats(engine.getAudioStats());
 
     refresh();
-    const intervalId = window.setInterval(refresh, 1000);
+    const intervalId = window.setInterval(refresh, STATS_REFRESH_INTERVAL_MS);
     return () => window.clearInterval(intervalId);
   }, []);
 
@@ -39,7 +43,7 @@ export function AudioStats() {
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-slate-400">latencyHint</span>
-              <span>{stats ? String(stats.latencyHint) : '--'}</span>
+              <span>{stats ? formatLatencyHint(stats.latencyHint) : '--'}</span>
             </div>
             <div className="flex justify-between gap-3">
               <span className="text-slate-400">baseLatency</span>

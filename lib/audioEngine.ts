@@ -76,8 +76,11 @@ export class AudioEngine {
     input: GainNode;
     output: GainNode;
   }>> = {};
-  private static readonly STEM_NORMALIZED_GAIN = 0.33;
+  private static readonly STEM_COUNT = 3;
+  private static readonly STEM_UNITY_CONTRIBUTION = 0.33;
+  private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
+  private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
@@ -269,13 +272,14 @@ export class AudioEngine {
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
     const vocalsGain = existingGains?.vocals ?? this.context.createGain();
-    const stemUnityGain = AudioEngine.STEM_NORMALIZED_GAIN;
 
-    drumsGain.gain.value = stemUnityGain;
-    instGain.gain.value = stemUnityGain;
-    vocalsGain.gain.value = stemUnityGain;
+    [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
+      gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
+    });
 
-    // Normalize the summed stem path so all three active stems land near unity (3 × 0.33 ≈ 1.0).
+    // Balance the summed stem path so all three active stems land near unity
+    // (STEM_COUNT × STEM_UNITY_CONTRIBUTION ≈ 1.0, so each active stem contributes one-third),
+    // which keeps the deck input from clipping before EQ, FX, and the master bus.
     // Wire: input -> [drums | inst | vocals] GainNodes -> output
     input.connect(drumsGain);
     input.connect(instGain);
@@ -438,7 +442,8 @@ export class AudioEngine {
     if (type === 'crush') {
       const decimation = 1 + norm * 12; // 1..13
       const reduction = 4 + norm * 60; // quantization levels
-      const crushActive = norm > 0.001;
+      // Treat near-zero UI values as "off" so the worklet can fully bypass and stop background fizz.
+      const crushActive = norm > AudioEngine.CRUSH_ACTIVATION_THRESHOLD;
       const preGain = crushActive ? 1 - norm * 0.2 : 0;
       const postGain = crushActive ? 1 + norm * 0.9 : 0;
       const bypassGain = crushActive ? 0 : 1;
@@ -564,7 +569,7 @@ export class AudioEngine {
   public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const target = isMuted ? 0 : AudioEngine.STEM_NORMALIZED_GAIN;
+    const target = isMuted ? 0 : AudioEngine.STEM_UNITY_CONTRIBUTION;
     deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
   }
 
@@ -589,7 +594,11 @@ export class AudioEngine {
     }
 
     const now = this.context.currentTime;
-    const smoothing = deck.keyLockEnabled ? AudioEngine.KEY_LOCK_PLAYBACK_RAMP : 0.01;
+    // Key Lock needs a slightly slower ramp so the browser's pitch-preserving stretch can settle
+    // without zipper noise while still feeling responsive on the tempo fader.
+    const smoothing = deck.keyLockEnabled
+      ? AudioEngine.KEY_LOCK_PLAYBACK_RAMP
+      : AudioEngine.DEFAULT_PLAYBACK_RAMP;
     deck.source.playbackRate.cancelScheduledValues(now);
     deck.source.playbackRate.setValueAtTime(deck.source.playbackRate.value, now);
     deck.source.playbackRate.setTargetAtTime(targetRate, now, smoothing);
