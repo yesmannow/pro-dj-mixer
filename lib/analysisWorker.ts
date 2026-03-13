@@ -40,10 +40,7 @@ const computeOverviewPeaks = (samples: Float32Array, size: number) => {
   return peaks;
 };
 
-const estimateBpm = (samples: Float32Array, sampleRate: number) => {
-  const windowSize = 1024;
-  const hopSize = 1024;
-
+const computeEnergies = (samples: Float32Array, windowSize: number, hopSize: number): number[] => {
   const energies: number[] = [];
   for (let i = 0; i + windowSize < samples.length; i += hopSize) {
     let sum = 0;
@@ -53,9 +50,10 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
     }
     energies.push(Math.sqrt(sum / windowSize));
   }
+  return energies;
+};
 
-  if (energies.length < 4) return DEFAULT_BPM;
-
+const calculateMeanAndStd = (energies: number[]): { mean: number; std: number } => {
   let mean = 0;
   for (const e of energies) mean += e;
   mean /= energies.length;
@@ -66,8 +64,10 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
     variance += d * d;
   }
   const std = Math.sqrt(variance / energies.length);
-  const threshold = mean + std * 1.5;
+  return { mean, std };
+};
 
+const findPeakTimes = (energies: number[], threshold: number, hopSize: number, sampleRate: number): number[] => {
   const peakTimes: number[] = [];
   for (let i = 1; i < energies.length - 1; i++) {
     const prev = energies[i - 1];
@@ -78,9 +78,10 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
       peakTimes.push(time);
     }
   }
+  return peakTimes;
+};
 
-  if (peakTimes.length < 2) return DEFAULT_BPM;
-
+const buildBpmHistogram = (peakTimes: number[]): Map<number, number> => {
   const histogram = new Map<number, number>();
   for (let i = 1; i < peakTimes.length; i++) {
     const interval = peakTimes[i] - peakTimes[i - 1];
@@ -91,9 +92,10 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
     const rounded = Math.round(bpm);
     histogram.set(rounded, (histogram.get(rounded) ?? 0) + 1);
   }
+  return histogram;
+};
 
-  if (histogram.size === 0) return DEFAULT_BPM;
-
+const findBestBpm = (histogram: Map<number, number>): number => {
   let bestBpm = DEFAULT_BPM;
   let bestCount = 0;
   for (const [bpm, count] of histogram) {
@@ -102,8 +104,26 @@ const estimateBpm = (samples: Float32Array, sampleRate: number) => {
       bestBpm = bpm;
     }
   }
-
   return bestBpm;
+};
+
+const estimateBpm = (samples: Float32Array, sampleRate: number): number => {
+  const windowSize = 1024;
+  const hopSize = 1024;
+
+  const energies = computeEnergies(samples, windowSize, hopSize);
+  if (energies.length < 4) return DEFAULT_BPM;
+
+  const { mean, std } = calculateMeanAndStd(energies);
+  const threshold = mean + std * 1.5;
+
+  const peakTimes = findPeakTimes(energies, threshold, hopSize, sampleRate);
+  if (peakTimes.length < 2) return DEFAULT_BPM;
+
+  const histogram = buildBpmHistogram(peakTimes);
+  if (histogram.size === 0) return DEFAULT_BPM;
+
+  return findBestBpm(histogram);
 };
 
 const handleAnalyze = (request: AnalysisRequest): AnalysisResponse => {

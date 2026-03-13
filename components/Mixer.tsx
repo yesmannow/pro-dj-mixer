@@ -6,7 +6,7 @@ import { useMixerStore } from '@/store/mixerStore';
 
 type MeterTarget = 'A' | 'B' | 'Master';
 
-const VUMeter = ({ deckId }: { deckId: MeterTarget }) => {
+const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const segmentsRef = useRef<HTMLDivElement[]>([]);
   const peakRef = useRef(0);
@@ -70,7 +70,7 @@ const VUMeter = ({ deckId }: { deckId: MeterTarget }) => {
   }, [deckId]);
 
   return (
-    <div ref={containerRef} className="flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5">
+    <div ref={containerRef} className={compact ? 'flex flex-col gap-0.5 h-24 w-3 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5' : 'flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5'}>
       {Array.from({ length: 12 }).map((_, idx) => (
         <div
           key={idx}
@@ -159,7 +159,7 @@ function EQKnob({ label, value, onChange }: { label: string; value: number; onCh
   );
 }
 
-export function Mixer() {
+export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, vaultAmbience, setEQ, setVolume, setCrossfader, setCrossfaderCurve, setVaultAmbience } = useMixerStore();
 
   const isDraggingCrossfader = useRef(false);
@@ -256,29 +256,29 @@ export function Mixer() {
   }, [vaultAmbience]);
 
   return (
-    <div className="bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl">
-      <div className="grid grid-cols-2 gap-8 w-full">
-        <div className="flex flex-col items-center gap-4">
+    <div className={compact ? 'h-full bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'bg-studio-slate/90 backdrop-blur-xl rounded-xl border border-studio-gold/20 p-4 flex flex-col items-center gap-6 transition-colors duration-300 touch-none select-none shadow-2xl'}>
+      <div className={compact ? 'grid grid-cols-2 gap-5 w-full' : 'grid grid-cols-2 gap-8 w-full'}>
+        <div className={compact ? 'flex flex-col items-center gap-3' : 'flex flex-col items-center gap-4'}>
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} />
           <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} />
           <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} />
         </div>
-        <div className="flex flex-col items-center gap-4">
+        <div className={compact ? 'flex flex-col items-center gap-3' : 'flex flex-col items-center gap-4'}>
           <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} />
           <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} />
           <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} />
         </div>
       </div>
-      <div className="flex justify-center gap-6 w-full px-4">
-        <VUMeter deckId="A" />
+      <div className={compact ? 'flex justify-center gap-4 w-full px-2' : 'flex justify-center gap-6 w-full px-4'}>
+        <VUMeter deckId="A" compact={compact} />
         <div
           ref={volARef}
-          className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+          className={compact ? 'w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           onPointerDown={startVolDrag('A')}
           onDoubleClick={() => setVolume('A', 0.75)}
         >
           <div
-            className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+            className={compact ? 'absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center' : 'absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center'}
             style={{ top: volATop, transform: 'translateY(-50%)' }}
           >
             <div className="w-4 h-0.5 bg-studio-black"></div>
@@ -307,35 +307,35 @@ export function Mixer() {
         <div className="flex flex-col items-center gap-2">
         <div
           ref={volBRef}
-          className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+          className={compact ? 'w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           onPointerDown={startVolDrag('B')}
           onDoubleClick={() => setVolume('B', 0.75)}
         >
           <div
-            className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+            className={compact ? 'absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center' : 'absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center'}
             style={{ top: volBTop, transform: 'translateY(-50%)' }}
           >
             <div className="w-4 h-0.5 bg-studio-black"></div>
           </div>
         </div>
         </div>
-        <VUMeter deckId="B" />
+        <VUMeter deckId="B" compact={compact} />
       </div>
-      <div className="w-full px-4 mt-auto">
+      <div className={compact ? 'w-full px-2 mt-auto' : 'w-full px-4 mt-auto'}>
         <div
-          className="h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+          className={compact ? 'h-7 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           ref={crossfaderRef}
           onMouseDown={handleCrossfaderDown}
           onDoubleClick={handleCrossfaderDoubleClick}
         >
           <div
-            className="absolute top-0 bottom-0 w-10 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] flex items-center justify-center"
+            className={compact ? 'absolute top-0 bottom-0 w-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] flex items-center justify-center' : 'absolute top-0 bottom-0 w-10 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] flex items-center justify-center'}
             style={{ left: crossfaderLeft, transform: 'translateX(-50%)' }}
           >
             <div className="h-4 w-0.5 bg-studio-black pointer-events-none"></div>
           </div>
         </div>
-        <div className="mt-3 flex flex-col items-center gap-2">
+        <div className={compact ? 'mt-2 flex flex-col items-center gap-1.5' : 'mt-3 flex flex-col items-center gap-2'}>
           <div className="inline-flex rounded-full bg-studio-black p-1 border border-studio-gold/30 text-[9px]">
             <button
               className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${

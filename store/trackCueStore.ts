@@ -96,8 +96,9 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
     const cueZeroTime = cueZero ? cueZero.time : 0;
 
     const tasks: Promise<any>[] = [];
+    // 10 bars = 40 beats in 4/4 time.
     for (let i = 1; i <= 7; i++) {
-      const time = cueZeroTime + i * 64 * secondsPerBeat;
+      const time = cueZeroTime + i * 40 * secondsPerBeat;
       tasks.push(get().setCue(trackId, i, time, 'hot'));
     }
 

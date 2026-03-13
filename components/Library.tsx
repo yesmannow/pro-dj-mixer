@@ -15,7 +15,7 @@ import { getCamelotStyles, isSmartMatch } from '@/lib/harmonic';
 import type { Track } from '@/lib/db';
 import { useShallow } from 'zustand/react/shallow';
 
-export function Library() {
+export function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
@@ -184,7 +184,9 @@ export function Library() {
   return (
     <div
       className={clsx(
-        "h-[40vh] min-h-[250px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl"
+        compact
+          ? 'h-full min-h-0 w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
+          : 'h-[40vh] min-h-[250px] w-full bg-slate-900/40 backdrop-blur-xl rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
@@ -229,11 +231,11 @@ export function Library() {
         )}
       </AnimatePresence>
 
-      <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20">
-        <div className="flex gap-4 items-center overflow-x-auto no-scrollbar">
+      <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20'}>
+        <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex gap-4 items-center overflow-x-auto no-scrollbar'}>
           <button
             onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             ALL TRACKS
           </button>
@@ -245,7 +247,7 @@ export function Library() {
               <button
                 onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
                 className={clsx(
-                  "px-3 py-1 rounded text-sm font-bold transition-colors flex items-center gap-2",
+                  compact ? 'px-2.5 py-1 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5' : "px-3 py-1 rounded text-sm font-bold transition-colors flex items-center gap-2",
                   activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
                 )}
               >
@@ -264,7 +266,7 @@ export function Library() {
 
           <button
             onClick={() => setIsCreatingCrate(true)}
-            className="p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors flex-shrink-0"
+            className={compact ? 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors' : 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors flex-shrink-0'}
             title="New Crate"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -274,13 +276,13 @@ export function Library() {
 
           <button
             onClick={() => setActiveTab('cue')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             CUE
           </button>
           <button
             onClick={() => setActiveTab('history')}
-            className={clsx("px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0", activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
           >
             HISTORY
           </button>
@@ -289,7 +291,7 @@ export function Library() {
 
           <button
             onClick={() => setAddMusicModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all flex-shrink-0"
+            className={compact ? 'flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all' : 'flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all flex-shrink-0'}
           >
             <span className="text-accent">+</span>
             ADD MUSIC
@@ -297,7 +299,7 @@ export function Library() {
           <button
             onClick={toggleSmartMatch}
             className={clsx(
-              "px-4 py-1.5 rounded-full border text-[11px] font-bold transition-all backdrop-blur-md",
+              compact ? 'px-3 py-1.5 rounded-full border text-[10px] font-bold transition-all backdrop-blur-md' : "px-4 py-1.5 rounded-full border text-[11px] font-bold transition-all backdrop-blur-md",
               isSmartMatchEnabled
                 ? "bg-studio-gold text-studio-black border-studio-gold shadow-[0_0_12px_#D4AF37]"
                 : "bg-white/5 text-slate-200 border-white/15 hover:border-studio-gold/60 hover:text-studio-gold"
@@ -310,14 +312,14 @@ export function Library() {
               setHoldVaultHud(true);
               void loadPikoVault(PIKO_VAULT_TRACKS);
             }}
-            className="px-4 py-2 bg-studio-gold text-studio-black font-heading font-bold rounded hover:bg-yellow-500 transition-colors shrink-0"
+            className={compact ? 'px-3 py-1.5 bg-studio-gold text-studio-black text-[10px] font-heading font-bold rounded hover:bg-yellow-500 transition-colors' : 'px-4 py-2 bg-studio-gold text-studio-black font-heading font-bold rounded hover:bg-yellow-500 transition-colors shrink-0'}
           >
             LOAD VAULT
           </button>
         </div>
 
         {isProcessingQueue && (
-          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 max-w-[40%]">
+          <div className={compact ? 'flex items-center gap-2 text-[10px] font-mono text-slate-400' : 'flex items-center gap-2 text-[10px] font-mono text-slate-400 max-w-[40%]'}>
             <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
             <span className="truncate">{queueProgress || 'Analyzing...'}</span>
           </div>

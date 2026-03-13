@@ -110,12 +110,16 @@
   /* Deck containment to prevent jogwheel bleed */
   .deck-container {
     position: relative;
-    overflow: hidden;
+    overflow: visible;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     padding: 1.75rem;
     min-height: 620px;
+  }
+
+  .deck-container--compact {
+    min-height: 0;
   }
 
   .jogwheel-wrapper {
@@ -125,6 +129,16 @@
     justify-content: center;
     align-items: center;
     padding: 1rem 0;
+  }
+
+  @media (orientation: landscape) and (max-height: 540px) {
+    .deck-container {
+      min-height: 0;
+    }
+
+    .jogwheel-wrapper {
+      padding: 0.25rem 0;
+    }
   }
 
   .crt-scanlines {

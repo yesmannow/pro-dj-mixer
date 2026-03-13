@@ -5,6 +5,10 @@ type FxType = 'filter' | 'echo' | 'crush';
 
 interface FXRackProps {
   deckId: 'A' | 'B';
+  compact?: boolean;
+  accentColor?: string;
+  accentRgb?: string;
+  secondaryColor?: string;
   onFxChange: (type: FxType, val: number) => void;
 }
 
@@ -17,7 +21,7 @@ interface FXKnobProps {
   onKill: () => void;
 }
 
-export function FXRack({ deckId, onFxChange }: FXRackProps) {
+export function FXRack({ deckId, compact = false, accentColor, accentRgb, secondaryColor, onFxChange }: FXRackProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeFx, setActiveFx] = useState({ filter: 50, echo: 0, crush: 0 });
 
@@ -36,11 +40,17 @@ export function FXRack({ deckId, onFxChange }: FXRackProps) {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full flex items-center justify-between rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-left text-slate-200 backdrop-blur-lg shadow-lg hover:border-white/20 transition-colors"
+        className={compact
+          ? 'w-full flex items-center justify-between rounded-xl bg-white/5 border border-white/10 px-3 py-2 text-left text-slate-200 backdrop-blur-lg shadow-lg hover:border-white/20 transition-colors'
+          : 'w-full flex items-center justify-between rounded-xl bg-white/5 border border-white/10 px-4 py-3 text-left text-slate-200 backdrop-blur-lg shadow-lg hover:border-white/20 transition-colors'}
+        style={{ borderColor: `rgba(${accentRgb ?? '212,175,55'}, 0.24)` }}
       >
         <div className="flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_rgba(56,189,248,0.7)]" />
-          <div className="text-xs font-semibold tracking-[0.2em] uppercase">Deck {deckId} FX</div>
+          <span
+            className="h-2 w-2 rounded-full"
+            style={{ backgroundColor: accentColor ?? '#38BDF8', boxShadow: `0 0 10px rgba(${accentRgb ?? '56,189,248'},0.7)` }}
+          />
+          <div className={compact ? 'text-[10px] font-semibold tracking-[0.2em] uppercase' : 'text-xs font-semibold tracking-[0.2em] uppercase'}>Deck {deckId} FX</div>
         </div>
         <span className="text-[11px] text-slate-400">{isOpen ? 'Hide' : 'Show'}</span>
       </button>
@@ -54,10 +64,10 @@ export function FXRack({ deckId, onFxChange }: FXRackProps) {
             transition={{ duration: 0.2, ease: 'easeOut' }}
             className="overflow-hidden bg-studio-black/90 backdrop-blur-xl border-x border-b border-[#333333] rounded-b-xl shadow-2xl mt-1"
           >
-            <div className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <FXKnob label="Wash" value={activeFx.filter} onChange={(v) => updateFx('filter', v)} onKill={() => killFx('filter', 50)} color="#D4AF37" defaultValue={50} />
+            <div className={compact ? 'p-3 grid grid-cols-1 sm:grid-cols-3 gap-3' : 'p-4 grid grid-cols-1 sm:grid-cols-3 gap-4'}>
+              <FXKnob label="Wash" value={activeFx.filter} onChange={(v) => updateFx('filter', v)} onKill={() => killFx('filter', 50)} color={accentColor ?? '#D4AF37'} defaultValue={50} />
               <FXKnob label="Echo" value={activeFx.echo} onChange={(v) => updateFx('echo', v)} onKill={() => killFx('echo', 0)} color="#38BDF8" defaultValue={0} />
-              <FXKnob label="Crush" value={activeFx.crush} onChange={(v) => updateFx('crush', v)} onKill={() => killFx('crush', 0)} color="#E11D48" defaultValue={0} />
+              <FXKnob label="Crush" value={activeFx.crush} onChange={(v) => updateFx('crush', v)} onKill={() => killFx('crush', 0)} color={secondaryColor ?? '#E11D48'} defaultValue={0} />
             </div>
           </motion.div>
         )}

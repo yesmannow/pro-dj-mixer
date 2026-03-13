@@ -8,19 +8,18 @@ interface CRTTerminalProps {
 }
 
 export function CRTTerminal({ children }: CRTTerminalProps) {
-  const [mounted, setMounted] = useState(false);
-  const [stage, setStage] = useState<'idle' | 'flash' | 'bloom' | 'steady'>('idle');
+  const [mounted] = useState(() => typeof window !== 'undefined');
+  const [stage, setStage] = useState<'idle' | 'flash' | 'bloom' | 'steady'>(() => (typeof window !== 'undefined' ? 'flash' : 'idle'));
 
   useEffect(() => {
-    setMounted(true);
-    setStage('flash');
+    if (!mounted) return undefined;
     const bloomTimer = setTimeout(() => setStage('bloom'), 220);
     const settleTimer = setTimeout(() => setStage('steady'), 900);
     return () => {
       clearTimeout(bloomTimer);
       clearTimeout(settleTimer);
     };
-  }, []);
+  }, [mounted]);
 
   const stripeHeight = useMemo(() => {
     if (!mounted || typeof window === 'undefined') return 4;

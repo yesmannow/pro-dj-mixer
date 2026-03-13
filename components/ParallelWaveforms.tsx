@@ -12,7 +12,7 @@ type DeckSnapshot = {
   buffer: AudioBuffer | null;
 };
 
-export function ParallelWaveforms() {
+export function ParallelWaveforms({ compact = false }: Readonly<{ compact?: boolean }>) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -229,14 +229,29 @@ export function ParallelWaveforms() {
     };
   }, [zoom]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
+      setZoom((prev) => Math.min(Math.max(prev + event.deltaY * -0.1, 20), 300));
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleWheel);
+    };
+  }, [setZoom]);
+
   return (
     <div
       ref={containerRef}
-      onWheel={(e) => {
-        e.preventDefault();
-        setZoom((prev) => Math.min(Math.max(prev + e.deltaY * -0.1, 20), 300));
-      }}
-      className="h-24 md:h-32 xl:h-40 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative"
+      className={
+        compact
+          ? 'h-12 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative'
+          : 'h-24 md:h-32 xl:h-40 w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative'
+      }
     >
       <canvas
         ref={canvasRef}

@@ -12,6 +12,9 @@ interface PerformancePadsProps {
   cuePoints: CuePointView[];
   shiftHeld: boolean;
   pressedSlots: Set<number>;
+  compact?: boolean;
+  accentColor?: string;
+  accentRgb?: string;
   onPadHold: (slot: number) => void;
   onPadRelease: (slot: number) => void;
   onClearCue: (slot: number) => void;
@@ -28,6 +31,9 @@ export function PerformancePads({
   cuePoints,
   shiftHeld,
   pressedSlots,
+  compact = false,
+  accentColor,
+  accentRgb,
   onPadHold,
   onPadRelease,
   onClearCue,
@@ -37,16 +43,23 @@ export function PerformancePads({
   const [pointerPressed, setPointerPressed] = useState<Set<number>>(new Set());
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className={compact ? 'flex flex-col gap-2' : 'flex flex-col gap-3'}>
       <button
         type="button"
-        className="w-full h-10 rounded-md border border-[#2a2a2a] bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] text-[11px] font-black tracking-widest text-slate-200 shadow-[0_4px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] active:translate-y-[1px] active:shadow-[0_2px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] transition-all"
+        className={compact
+          ? 'w-full h-8 rounded-md border border-[#2a2a2a] bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] text-[10px] font-black tracking-[0.2em] text-slate-200 shadow-[0_4px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] active:translate-y-[1px] active:shadow-[0_2px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] transition-all'
+          : 'w-full h-10 rounded-md border border-[#2a2a2a] bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] text-[11px] font-black tracking-widest text-slate-200 shadow-[0_4px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] active:translate-y-[1px] active:shadow-[0_2px_0_#000,inset_0_1px_0_rgba(255,255,255,0.05)] transition-all'}
+        style={{
+          borderColor: accentColor ?? '#2a2a2a',
+          color: accentColor ?? '#e2e8f0',
+          boxShadow: `0 4px 0 #000,inset 0 1px 0 rgba(255,255,255,0.05),0 0 18px rgba(${accentRgb ?? '212,175,55'},0.18)`,
+        }}
         onClick={onAutoGenerate}
       >
-        AUTO 16-BAR
+        AUTO 10-BAR
       </button>
 
-      <div className="mpc-grid-container grid grid-cols-4 gap-2">
+      <div className={compact ? 'mpc-grid-container grid grid-cols-4 gap-1.5 p-2' : 'mpc-grid-container grid grid-cols-4 gap-2'}>
         {[0, 1, 2, 3, 4, 5, 6, 7].map((slot) => {
           const cue = cuePoints.find((c) => c.slot === slot);
           const isActive = Boolean(cue);
@@ -55,7 +68,6 @@ export function PerformancePads({
 
           const padClasses = clsx(
             'mpc-pad relative overflow-hidden touch-none select-none focus:outline-none',
-            deckId === 'A' ? 'mpc-pad-set-A' : 'mpc-pad-set-B',
             isPressed && 'mpc-pad-pressed',
             shiftHeld && isActive && 'del-mode'
           );
@@ -66,8 +78,11 @@ export function PerformancePads({
               type="button"
               whileTap={{ scale: 0.95 }}
               className={padClasses}
+              style={{
+                borderColor: accentColor ?? (deckId === 'A' ? '#D4AF37' : '#E11D48'),
+                boxShadow: `0 0 12px rgba(${accentRgb ?? (deckId === 'A' ? '212,175,55' : '225,29,72')}, 0.3), 0 4px 0 0 #000`,
+              }}
               onPointerDown={(e) => {
-                e.preventDefault();
                 setPointerPressed((prev) => {
                   const next = new Set(prev);
                   next.add(slot);
@@ -79,8 +94,7 @@ export function PerformancePads({
                 }
                 onPadHold(slot);
               }}
-              onPointerUp={(e) => {
-                e.preventDefault();
+              onPointerUp={() => {
                 setPointerPressed((prev) => {
                   const next = new Set(prev);
                   next.delete(slot);
@@ -106,17 +120,17 @@ export function PerformancePads({
                 if (!shiftHeld) onPadRelease(slot);
               }}
             >
-              <span className="absolute top-1 left-1 text-[8px] uppercase tracking-[0.12em] text-gray-600">
+              <span className={compact ? 'absolute top-0.5 left-1 text-[7px] uppercase tracking-[0.08em] text-gray-600' : 'absolute top-1 left-1 text-[8px] uppercase tracking-[0.12em] text-gray-600'}>
                 {label}
               </span>
               {shiftHeld && isActive ? (
-                <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-red-200">DEL</span>
+                <span className={compact ? 'absolute inset-0 flex items-center justify-center text-[9px] font-black text-red-200' : 'absolute inset-0 flex items-center justify-center text-[11px] font-black text-red-200'}>DEL</span>
               ) : (
-                <span className="absolute inset-0 flex items-center justify-center text-[11px] font-black text-slate-200">
+                <span className={compact ? 'absolute inset-0 flex items-center justify-center text-[9px] font-black text-slate-200' : 'absolute inset-0 flex items-center justify-center text-[11px] font-black text-slate-200'}>
                   {isActive ? `CUE ${slot}` : 'EMPTY'}
                 </span>
               )}
-              <div className="absolute bottom-1 right-1 text-[8px] text-gray-500">{slot}</div>
+              <div className={compact ? 'absolute bottom-0.5 right-0.5 text-[7px] text-gray-500' : 'absolute bottom-1 right-1 text-[8px] text-gray-500'}>{slot}</div>
             </MagneticButton>
           );
         })}

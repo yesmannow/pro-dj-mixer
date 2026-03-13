@@ -10,6 +10,7 @@ interface OverviewWaveformProps {
   currentTime: number;
   track: { id?: number; overviewWaveform?: number[] } | null;
   accentColor: string;
+  compact?: boolean;
   onScrubTo?: (time: number) => void;
 }
 
@@ -19,6 +20,7 @@ export function OverviewWaveform({
   currentTime,
   track,
   accentColor,
+  compact = false,
   onScrubTo,
 }: OverviewWaveformProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -153,7 +155,6 @@ export function OverviewWaveform({
   );
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
     isScrubbingRef.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
     handlePointer(e.clientX);
@@ -161,7 +162,6 @@ export function OverviewWaveform({
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!isScrubbingRef.current) return;
-    e.preventDefault();
     handlePointer(e.clientX);
   };
 
@@ -177,7 +177,9 @@ export function OverviewWaveform({
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-16 md:h-20 bg-black/40 rounded-lg overflow-hidden border border-slate-800/50 touch-none"
+      className={compact
+        ? 'relative w-full h-10 bg-black/40 rounded-lg overflow-hidden border border-slate-800/50 touch-none'
+        : 'relative w-full h-16 md:h-20 bg-black/40 rounded-lg overflow-hidden border border-slate-800/50 touch-none'}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

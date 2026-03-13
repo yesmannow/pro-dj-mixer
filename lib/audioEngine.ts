@@ -10,6 +10,8 @@ export class AudioEngine {
   private bunkerImpulseLoaded = false;
   private bunkerImpulseWarningLogged = false;
   private masterDataArray: Uint8Array<ArrayBuffer>;
+  private workletReadyPromise: Promise<boolean> | null = null;
+  private workletWarningLogged = false;
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
   private decks: Record<'A' | 'B', {
@@ -46,7 +48,8 @@ export class AudioEngine {
   private deckFxBuses: Partial<Record<'A' | 'B', {
     input: GainNode;
     crushPreGain: GainNode;
-    crushNode: ScriptProcessorNode;
+    crushNode: AudioWorkletNode | GainNode;
+    crushSupported: boolean;
     crushState: { step: number; holdSample: number; decimation: number; reduction: number };
     crushPostGain: GainNode;
     filter: BiquadFilterNode;
@@ -91,6 +94,7 @@ export class AudioEngine {
     this.bunkerDryGain.connect(this.context.destination);
     this.bunkerWetGain.connect(this.context.destination);
 
+    this.workletReadyPromise = this.ensureAudioWorklets();
     void this.loadBunkerImpulse();
   }
 
@@ -272,30 +276,60 @@ export class AudioEngine {
     };
   }
 
-  public createDeckFxBus(deckId: 'A' | 'B') {
+  private async ensureAudioWorklets(): Promise<boolean> {
+    if (!this.context.audioWorklet) {
+      if (!this.workletWarningLogged) {
+        console.warn('[AudioEngine] AudioWorklet unavailable. Crush FX will run in bypass mode.');
+        this.workletWarningLogged = true;
+      }
+      return false;
+    }
+
+    try {
+      await this.context.audioWorklet.addModule('/worklets/bitcrusher-processor.js');
+      return true;
+    } catch (error) {
+      if (!this.workletWarningLogged) {
+        const message = error instanceof Error ? error.message : 'unknown worklet load failure';
+        console.warn(`[AudioEngine] Failed to load bitcrusher worklet (${message}). Crush FX will run in bypass mode.`);
+        this.workletWarningLogged = true;
+      }
+      return false;
+    }
+  }
+
+  private async createCrushNode(initialDecimation: number, initialReduction: number) {
+    const workletReady = this.workletReadyPromise ? await this.workletReadyPromise : await this.ensureAudioWorklets();
+    if (!workletReady) {
+      return {
+        crushNode: this.context.createGain(),
+        crushSupported: false,
+        crushState: { step: 0, holdSample: 0, decimation: initialDecimation, reduction: initialReduction }
+      };
+    }
+
+    const crushNode = new AudioWorkletNode(this.context, 'bitcrusher-processor', {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      outputChannelCount: [1],
+      parameterData: {
+        decimation: initialDecimation,
+        reduction: initialReduction,
+      }
+    });
+
+    const crushState = { step: 0, holdSample: 0, decimation: initialDecimation, reduction: initialReduction };
+    return { crushNode, crushSupported: true, crushState };
+  }
+
+  public async createDeckFxBus(deckId: 'A' | 'B') {
     if (this.deckFxBuses[deckId]) {
       return this.deckFxBuses[deckId];
     }
 
     const input = this.context.createGain();
     const crushPreGain = this.context.createGain();
-    const crushNode = this.context.createScriptProcessor(256, 1, 1);
-    const crushState = { step: 0, holdSample: 0, decimation: 4, reduction: 4 };
-    crushNode.onaudioprocess = (event) => {
-      const input = event.inputBuffer.getChannelData(0);
-      const output = event.outputBuffer.getChannelData(0);
-      const decimation = Math.max(1, Math.round(crushState.decimation));
-      const reduction = Math.max(1, crushState.reduction);
-      for (let i = 0; i < input.length; i++) {
-        if (crushState.step % decimation === 0) {
-          const sample = input[i];
-          const aliased = Math.floor(sample * reduction) / reduction;
-          crushState.holdSample = aliased;
-        }
-        output[i] = crushState.holdSample;
-        crushState.step++;
-      }
-    };
+    const { crushNode, crushSupported, crushState } = await this.createCrushNode(4, 4);
     const crushPostGain = this.context.createGain();
     const filter = this.context.createBiquadFilter();
     const delayNode = this.context.createDelay(2);
@@ -335,6 +369,7 @@ export class AudioEngine {
       input,
       crushPreGain,
       crushNode,
+      crushSupported,
       crushState,
       crushPostGain,
       filter,
@@ -387,6 +422,12 @@ export class AudioEngine {
       const postGain = 1 + norm * 0.9;
       fx.crushState.decimation = decimation;
       fx.crushState.reduction = reduction;
+      if (fx.crushSupported && fx.crushNode instanceof AudioWorkletNode) {
+        const decimationParam = fx.crushNode.parameters.get('decimation');
+        const reductionParam = fx.crushNode.parameters.get('reduction');
+        decimationParam?.setValueAtTime(decimation, now);
+        reductionParam?.setValueAtTime(reduction, now);
+      }
       fx.crushPreGain.gain.setTargetAtTime(preGain, now, 0.03);
       fx.crushPostGain.gain.setTargetAtTime(postGain, now, 0.03);
     }

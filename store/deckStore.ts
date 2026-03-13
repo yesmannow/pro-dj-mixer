@@ -103,9 +103,14 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
 
   setCurrentTime: (deckId: 'A' | 'B', time: number) => {
     const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
-    set((state) => ({
-      [deckKey]: { ...state[deckKey], currentTime: time }
-    }));
+    set((state) => {
+      if (Math.abs(state[deckKey].currentTime - time) < 0.001) {
+        return state;
+      }
+      return {
+        [deckKey]: { ...state[deckKey], currentTime: time }
+      };
+    });
   },
 
   toggleSync: (deckId: 'A' | 'B') => {
