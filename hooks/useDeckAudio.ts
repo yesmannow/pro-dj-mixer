@@ -48,11 +48,6 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const animationRef = useRef<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
-  const [mutedStems, setMutedStems] = useState<{ drums: boolean; inst: boolean; vocals: boolean }>({
-    drums: false,
-    inst: false,
-    vocals: false
-  });
 
   const commitDeckTime = useCallback((time: number, force = false) => {
     const commitInterval = 1 / 30; // 30 Hz commit rate to avoid global-store thrash.
@@ -320,17 +315,6 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     };
   }, []);
 
-  const toggleStemMute = useCallback((stemType: 'drums' | 'inst' | 'vocals') => {
-    setMutedStems((prev) => {
-      const nextMuted = !prev[stemType];
-      AudioEngine.getInstance().setStemMute(deckId, stemType, nextMuted);
-      return {
-        ...prev,
-        [stemType]: nextMuted
-      };
-    });
-  }, [deckId]);
-
   return {
     currentTime,
     duration: deckState.duration,
@@ -344,7 +328,5 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     scrubTrack,
     endScrub,
     getAudioData,
-    mutedStems,
-    toggleStemMute
   };
 }
