@@ -3,6 +3,7 @@ export class AudioEngine {
   public context: AudioContext;
   public masterGain: GainNode;
   public masterAnalyser: AnalyserNode;
+  private limiter: DynamicsCompressorNode;
   private bunkerConvolver: ConvolverNode;
   private bunkerWetGain: GainNode;
   private bunkerDryGain: GainNode;
@@ -13,6 +14,7 @@ export class AudioEngine {
   private workletReadyPromise: Promise<boolean> | null = null;
   private workletWarningLogged = false;
   private recordingDestination: MediaStreamAudioDestinationNode | null = null;
+  private readonly latencyHint: AudioContextLatencyCategory = 'interactive';
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
   private decks: Record<'A' | 'B', {
@@ -23,6 +25,7 @@ export class AudioEngine {
     isPlaying: boolean;
     playbackRate: number;
     pauseTime: number;
+    keyLockEnabled: boolean;
     onSourceSwap?: (source: AudioBufferSourceNode | null) => void;
     onPauseTime?: (time: number) => void;
   }> = {
@@ -34,6 +37,7 @@ export class AudioEngine {
       isPlaying: false,
       playbackRate: 1,
       pauseTime: 0,
+      keyLockEnabled: false,
     },
     B: {
       buffer: null,
@@ -43,11 +47,13 @@ export class AudioEngine {
       isPlaying: false,
       playbackRate: 1,
       pauseTime: 0,
+      keyLockEnabled: false,
     },
   };
   private originalPlayState: Record<'A' | 'B', boolean> = { A: false, B: false };
   private deckFxBuses: Partial<Record<'A' | 'B', {
     input: GainNode;
+    crushBypassGain: GainNode;
     crushPreGain: GainNode;
     crushNode: AudioWorkletNode | GainNode;
     crushSupported: boolean;
@@ -70,16 +76,28 @@ export class AudioEngine {
     input: GainNode;
     output: GainNode;
   }>> = {};
+  private static readonly STEM_UNITY_GAIN = 0.33;
 
   private constructor() {
-    this.context = new (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext)();
+    const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
+    try {
+      this.context = new AudioContextCtor({ latencyHint: this.latencyHint });
+    } catch {
+      this.context = new AudioContextCtor();
+    }
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.95;
+    this.masterGain.gain.value = 0.7;
 
     this.masterAnalyser = this.context.createAnalyser();
     this.masterAnalyser.fftSize = 512;
-    this.masterAnalyser.smoothingTimeConstant = 0.82;
+    this.masterAnalyser.smoothingTimeConstant = 0.85;
     this.masterDataArray = new Uint8Array(new ArrayBuffer(this.masterAnalyser.frequencyBinCount));
+    this.limiter = this.context.createDynamicsCompressor();
+    this.limiter.threshold.setValueAtTime(-1, this.context.currentTime);
+    this.limiter.knee.setValueAtTime(0, this.context.currentTime);
+    this.limiter.ratio.setValueAtTime(20, this.context.currentTime);
+    this.limiter.attack.setValueAtTime(0.003, this.context.currentTime);
+    this.limiter.release.setValueAtTime(0.1, this.context.currentTime);
 
     this.bunkerConvolver = this.context.createConvolver();
     this.bunkerPreDelay = this.context.createDelay(1.0);
@@ -87,21 +105,22 @@ export class AudioEngine {
     this.bunkerWetGain = this.context.createGain();
     this.bunkerDryGain = this.context.createGain();
     this.bunkerWetGain.gain.value = 0.2;
-    this.bunkerDryGain.gain.value = 0.9;
+    this.bunkerDryGain.gain.value = 0.8;
 
-    // Master routing: masterGain -> analyser -> (dry + bunker) -> destination
+    // Master routing: masterGain -> analyser -> (dry + bunker) -> limiter -> destination
     this.masterGain.connect(this.masterAnalyser);
     this.masterAnalyser.connect(this.bunkerDryGain);
     this.masterAnalyser.connect(this.bunkerPreDelay);
     this.bunkerPreDelay.connect(this.bunkerConvolver);
     this.bunkerConvolver.connect(this.bunkerWetGain);
 
-    this.bunkerDryGain.connect(this.context.destination);
-    this.bunkerWetGain.connect(this.context.destination);
+    this.bunkerDryGain.connect(this.limiter);
+    this.bunkerWetGain.connect(this.limiter);
+    this.limiter.connect(this.context.destination);
 
-    // Recording tap: connect masterGain to a MediaStreamDestination before the analyser
+    // Recording tap: connect the final post-limiter signal to the MediaStreamDestination
     this.recordingDestination = this.context.createMediaStreamDestination();
-    this.masterGain.connect(this.recordingDestination);
+    this.limiter.connect(this.recordingDestination);
 
     this.workletReadyPromise = this.ensureAudioWorklets();
     void this.loadBunkerImpulse();
@@ -136,9 +155,10 @@ export class AudioEngine {
     return await this.context.decodeAudioData(arrayBuffer);
   }
 
-  public createPitchLockedSource(buffer: AudioBuffer) {
+  public createPitchLockedSource(deckId: 'A' | 'B', buffer: AudioBuffer) {
     const source = this.context.createBufferSource();
     source.buffer = buffer;
+    this.applyPitchLock(source, deckId);
     return source;
   }
 
@@ -152,6 +172,7 @@ export class AudioEngine {
       isPlaying: boolean;
       playbackRate: number;
       pauseTime: number;
+      keyLockEnabled: boolean;
       onSourceSwap?: (source: AudioBufferSourceNode | null) => void;
       onPauseTime?: (time: number) => void;
     }>
@@ -185,7 +206,7 @@ export class AudioEngine {
     }
 
     // Recreate a fresh source and start from the requested position
-    const freshSource = this.createPitchLockedSource(deck.buffer);
+    const freshSource = this.createPitchLockedSource(deckId, deck.buffer);
     freshSource.playbackRate.value = deck.playbackRate;
     freshSource.connect(deck.stemInput);
     freshSource.start(now + 0.002, targetTime);
@@ -247,10 +268,11 @@ export class AudioEngine {
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
     const vocalsGain = existingGains?.vocals ?? this.context.createGain();
+    const stemUnityGain = AudioEngine.STEM_UNITY_GAIN;
 
-    drumsGain.gain.value = 1;
-    instGain.gain.value = 1;
-    vocalsGain.gain.value = 1;
+    drumsGain.gain.value = stemUnityGain;
+    instGain.gain.value = stemUnityGain;
+    vocalsGain.gain.value = stemUnityGain;
 
     // Wire: input -> [drums | inst | vocals] GainNodes -> output
     input.connect(drumsGain);
@@ -319,6 +341,7 @@ export class AudioEngine {
     }
 
     const input = this.context.createGain();
+    const crushBypassGain = this.context.createGain();
     const crushPreGain = this.context.createGain();
     const { crushNode, crushSupported, crushState } = await this.createCrushNode(4, 4);
     const crushPostGain = this.context.createGain();
@@ -339,8 +362,11 @@ export class AudioEngine {
     delayMixGain.gain.value = 0;
     dryGain.gain.value = 1;
     deckGain.gain.value = 0.9;
+    crushBypassGain.gain.value = 1;
 
+    input.connect(crushBypassGain);
     input.connect(crushPreGain);
+    crushBypassGain.connect(filter);
     crushPreGain.connect(crushNode);
     crushNode.connect(crushPostGain);
     crushPostGain.connect(filter);
@@ -358,6 +384,7 @@ export class AudioEngine {
 
     const bus = {
       input,
+      crushBypassGain,
       crushPreGain,
       crushNode,
       crushSupported,
@@ -407,10 +434,12 @@ export class AudioEngine {
     }
 
     if (type === 'crush') {
-      const decimation = 1 + norm * 12; // 1..13
-      const reduction = 4 + norm * 60; // quantization levels
-      const preGain = 1 - norm * 0.2;
-      const postGain = 1 + norm * 0.9;
+      const decimation = Math.max(1, 1 + norm * 12); // 1..13
+      const reduction = norm === 0 ? 128 : 4 + norm * 60; // quantization levels
+      const crushActive = norm > 0.001;
+      const preGain = crushActive ? 1 - norm * 0.2 : 0;
+      const postGain = crushActive ? 1 + norm * 0.9 : 0;
+      const bypassGain = crushActive ? 0 : 1;
       fx.crushState.decimation = decimation;
       fx.crushState.reduction = reduction;
       if (fx.crushSupported && fx.crushNode instanceof AudioWorkletNode) {
@@ -419,6 +448,7 @@ export class AudioEngine {
         decimationParam?.setValueAtTime(decimation, now);
         reductionParam?.setValueAtTime(reduction, now);
       }
+      fx.crushBypassGain.gain.setTargetAtTime(bypassGain, now, 0.02);
       fx.crushPreGain.gain.setTargetAtTime(preGain, now, 0.03);
       fx.crushPostGain.gain.setTargetAtTime(postGain, now, 0.03);
     }
@@ -494,6 +524,16 @@ export class AudioEngine {
     };
   }
 
+  public getAudioStats() {
+    const contextWithLatency = this.context as AudioContext & { latencyHint?: AudioContextLatencyCategory | number };
+    return {
+      sampleRate: this.context.sampleRate,
+      contextState: this.context.state,
+      latencyHint: contextWithLatency.latencyHint ?? this.latencyHint,
+      baseLatency: this.context.baseLatency ?? 0,
+    };
+  }
+
   public getDeckAnalyser(deckId: 'A' | 'B'): AnalyserNode | null {
     return this.deckAnalysers[deckId] ?? null;
   }
@@ -522,8 +562,19 @@ export class AudioEngine {
   public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const target = isMuted ? 0 : 1;
+    const target = isMuted ? 0 : AudioEngine.STEM_UNITY_GAIN;
     deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
+  }
+
+  public toggleKeyLock(deckId: 'A' | 'B') {
+    const deck = this.decks[deckId];
+    const enabled = !deck.keyLockEnabled;
+    deck.keyLockEnabled = enabled;
+    const supported = this.getPitchLockSupport();
+    if (deck.source) {
+      this.applyPitchLock(deck.source, deckId);
+    }
+    return { enabled, supported };
   }
 
   public createEQChain() {
@@ -602,6 +653,33 @@ export class AudioEngine {
 
   public getRecordingStream(): MediaStream | null {
     return this.recordingDestination ? this.recordingDestination.stream : null;
+  }
+
+  private getPitchLockSupport() {
+    const probe = this.context.createBufferSource() as AudioBufferSourceNode & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+    return 'preservesPitch' in probe || 'mozPreservesPitch' in probe || 'webkitPreservesPitch' in probe;
+  }
+
+  private applyPitchLock(source: AudioBufferSourceNode, deckId: 'A' | 'B') {
+    const pitchLockSource = source as AudioBufferSourceNode & {
+      preservesPitch?: boolean;
+      mozPreservesPitch?: boolean;
+      webkitPreservesPitch?: boolean;
+    };
+    const enabled = this.decks[deckId].keyLockEnabled;
+    if ('preservesPitch' in pitchLockSource) {
+      pitchLockSource.preservesPitch = enabled;
+    }
+    if ('mozPreservesPitch' in pitchLockSource) {
+      pitchLockSource.mozPreservesPitch = enabled;
+    }
+    if ('webkitPreservesPitch' in pitchLockSource) {
+      pitchLockSource.webkitPreservesPitch = enabled;
+    }
   }
 
   public getCrossfaderGains(

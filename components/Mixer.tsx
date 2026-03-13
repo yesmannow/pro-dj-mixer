@@ -5,6 +5,7 @@ import { AudioEngine } from '@/lib/audioEngine';
 import { useMixerStore } from '@/store/mixerStore';
 import { useDeckStore } from '@/store/deckStore';
 import { getCompatibleKeys } from '@/lib/harmonicKeys';
+import { MasterMeter } from '@/components/MasterMeter';
 import { useShallow } from 'zustand/react/shallow';
 
 type MeterTarget = 'A' | 'B' | 'Master';
@@ -15,8 +16,6 @@ const EQ_LOW_THRESHOLD = 0.1;
 const EQ_MID_THRESHOLD = 0.5;
 /** Sparkline circular buffer size — last N energy samples displayed per EQ band */
 const SPARKLINE_HISTORY_SIZE = 8;
-/** Jitter amplitude for stereo simulation on the R channel (fraction of low-freq energy) */
-const STEREO_JITTER_FACTOR = 0.06;
 /** Energy levels for sparkline color transitions (green → yellow → red) */
 const SPARKLINE_HIGH_ENERGY = 0.6;
 const SPARKLINE_MID_ENERGY = 0.3;
@@ -94,94 +93,6 @@ const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: b
           style={{ backgroundColor: '#0f172a', opacity: 0.1 }}
         />
       ))}
-    </div>
-  );
-};
-
-// ── Stereo Master VU Meter ──────────────────────────────────────────────────
-const StereoMasterMeter = () => {
-  const lContainerRef = useRef<HTMLDivElement>(null);
-  const rContainerRef = useRef<HTMLDivElement>(null);
-  const lSegsRef = useRef<HTMLDivElement[]>([]);
-  const rSegsRef = useRef<HTMLDivElement[]>([]);
-  const peakLRef = useRef(0);
-  const peakRRef = useRef(0);
-  const peakTimerLRef = useRef(0);
-  const peakTimerRRef = useRef(0);
-  const velLRef = useRef(0);
-  const velRRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
-
-  const paintMeter = (
-    segs: HTMLDivElement[],
-    level: number,
-    peakRef: React.MutableRefObject<number>,
-    peakTimerRef: React.MutableRefObject<number>,
-    velRef: React.MutableRefObject<number>
-  ) => {
-    if (level > peakRef.current) {
-      peakRef.current = level;
-      velRef.current = 0;
-      peakTimerRef.current = 30;
-    } else {
-      if (peakTimerRef.current > 0) {
-        peakTimerRef.current -= 1;
-      } else {
-        velRef.current += 0.005;
-        peakRef.current = Math.max(0, peakRef.current - velRef.current);
-      }
-    }
-    const lit = Math.round(Math.min(1, level) * 12);
-    const peakIdx = Math.min(11, Math.floor(peakRef.current * 12));
-    segs.forEach((seg, idx) => {
-      const color = idx >= 10 ? '#E11D48' : idx >= 8 ? '#D4AF37' : '#22c55e';
-      const active = idx < lit || idx === peakIdx;
-      seg.style.backgroundColor = color;
-      seg.style.opacity = active ? (idx === peakIdx ? '1' : '0.9') : '0.1';
-      seg.style.boxShadow = active ? `0 0 6px ${color}` : 'none';
-    });
-  };
-
-  useEffect(() => {
-    const ensureSegs = () => {
-      if (lContainerRef.current)
-        lSegsRef.current = Array.from(lContainerRef.current.querySelectorAll<HTMLDivElement>('[data-seg]'));
-      if (rContainerRef.current)
-        rSegsRef.current = Array.from(rContainerRef.current.querySelectorAll<HTMLDivElement>('[data-seg]'));
-    };
-    ensureSegs();
-    const engine = AudioEngine.getInstance();
-
-    const tick = () => {
-      const { rms, low } = engine.getMasterEnergy();
-      // L channel = rms; R channel = rms + tiny jitter from low-freq energy
-      const jitter = (Math.random() * 2 - 1) * low * STEREO_JITTER_FACTOR;
-      const rLevel = Math.max(0, Math.min(1, rms + jitter));
-      paintMeter(lSegsRef.current, rms, peakLRef, peakTimerLRef, velLRef);
-      paintMeter(rSegsRef.current, rLevel, peakRRef, peakTimerRRef, velRRef);
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  const meterClass = 'flex flex-col gap-0.5 h-32 w-4 bg-[#050505] border border-studio-gold/30 rounded-sm p-0.5';
-  return (
-    <div className="flex gap-1 items-end">
-      <div className="text-[7px] text-slate-600 uppercase tracking-widest rotate-180 [writing-mode:vertical-rl] mb-1">L</div>
-      <div ref={lContainerRef} className={meterClass}>
-        {Array.from({ length: 12 }).map((_, idx) => (
-          <div key={idx} data-seg className="flex-1 rounded-[2px]" style={{ backgroundColor: '#0f172a', opacity: 0.1 }} />
-        ))}
-      </div>
-      <div ref={rContainerRef} className={meterClass}>
-        {Array.from({ length: 12 }).map((_, idx) => (
-          <div key={idx} data-seg className="flex-1 rounded-[2px]" style={{ backgroundColor: '#0f172a', opacity: 0.1 }} />
-        ))}
-      </div>
-      <div className="text-[7px] text-slate-600 uppercase tracking-widest rotate-180 [writing-mode:vertical-rl] mb-1">R</div>
     </div>
   );
 };
@@ -658,7 +569,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
         </div>
         <div className="mt-4 flex justify-center">
-          <StereoMasterMeter />
+          <MasterMeter />
         </div>
       </div>
     </div>

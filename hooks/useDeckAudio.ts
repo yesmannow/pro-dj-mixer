@@ -48,6 +48,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
   const animationRef = useRef<number | null>(null);
 
   const [currentTime, setCurrentTime] = useState(0);
+  const basePlaybackRate = Math.max(0.5, Math.min(2.0, 1 + deckState.pitchPercent / 100));
 
   const commitDeckTime = useCallback((time: number, force = false) => {
     const commitInterval = 1 / 30; // 30 Hz commit rate to avoid global-store thrash.
@@ -60,16 +61,14 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
   const syncRuntime = useCallback(() => {
     const engine = AudioEngine.getInstance();
-    const runtimePlaybackRate = Math.max(0.5, Math.min(2.0, 1 + deckState.pitchPercent / 100));
-
-    engine.registerDeckRuntime(deckId, {
-      buffer: deckState.buffer,
-      source: sourceRef.current,
-      stemInput: stemChainRef.current?.input ?? null,
-      deckGain: deckGainRef.current,
-      isPlaying: deckState.isPlaying,
-      playbackRate: runtimePlaybackRate,
-      pauseTime: pauseTimeRef.current,
+      engine.registerDeckRuntime(deckId, {
+        buffer: deckState.buffer,
+        source: sourceRef.current,
+        stemInput: stemChainRef.current?.input ?? null,
+        deckGain: deckGainRef.current,
+        isPlaying: deckState.isPlaying,
+        playbackRate: basePlaybackRate,
+        pauseTime: pauseTimeRef.current,
       onSourceSwap: (next) => {
         sourceRef.current = next;
         lastContextTimeRef.current = engine.context.currentTime;
@@ -83,7 +82,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
         commitDeckTime(nextTime, true);
       }
     });
-  }, [commitDeckTime, deckId, deckState.buffer, deckState.isPlaying, deckState.pitchPercent]);
+  }, [basePlaybackRate, commitDeckTime, deckId, deckState.buffer, deckState.isPlaying]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -166,8 +165,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
       stopAudio();
 
-      sourceRef.current = engine.createPitchLockedSource(deckState.buffer);
-      sourceRef.current.playbackRate.value = 1;
+       sourceRef.current = engine.createPitchLockedSource(deckId, deckState.buffer);
+       sourceRef.current.playbackRate.value = basePlaybackRate;
 
       // Connect source to stem crossover input
       sourceRef.current.connect(stemChainRef.current.input);
@@ -222,18 +221,17 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     return () => {
       stopAudio();
     };
-  }, [commitDeckTime, deckId, deckState.buffer, deckState.isPlaying, syncRuntime, togglePlay]);
+  }, [basePlaybackRate, commitDeckTime, deckId, deckState.buffer, deckState.isPlaying, syncRuntime, togglePlay]);
 
   useEffect(() => {
     if (!sourceRef.current) return;
-    const targetRate = Math.max(0.5, Math.min(2.0, 1 + deckState.pitchPercent / 100));
     sourceRef.current.playbackRate.setTargetAtTime(
-      targetRate,
+      basePlaybackRate,
       AudioEngine.getInstance().context.currentTime,
       0.02
     );
     syncRuntime();
-  }, [deckState.pitchPercent, syncRuntime]);
+  }, [basePlaybackRate, syncRuntime]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -269,7 +267,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       syncRuntime();
     } else {
       if (sourceRef.current) {
-        const rate = 1.0 + timeDelta * 10;
+        const rate = basePlaybackRate + timeDelta * 10;
         sourceRef.current.playbackRate.setTargetAtTime(
           Math.max(0.5, Math.min(2.0, rate)),
           AudioEngine.getInstance().context.currentTime,
@@ -277,17 +275,17 @@ export function useDeckAudio(deckId: 'A' | 'B') {
         );
       }
     }
-  }, [commitDeckTime, deckState.buffer, deckState.isPlaying, syncRuntime]);
+  }, [basePlaybackRate, commitDeckTime, deckState.buffer, deckState.isPlaying, syncRuntime]);
 
   const endScrub = useCallback(() => {
     if (sourceRef.current && deckState.isPlaying) {
       sourceRef.current.playbackRate.setTargetAtTime(
-        1.0,
+        basePlaybackRate,
         AudioEngine.getInstance().context.currentTime,
         0.1
       );
     }
-  }, [deckState.isPlaying]);
+  }, [basePlaybackRate, deckState.isPlaying]);
 
   const getAudioData = useCallback((): AudioDataSnapshot => {
     if (!analyserRef.current || !dataArrayRef.current) {
