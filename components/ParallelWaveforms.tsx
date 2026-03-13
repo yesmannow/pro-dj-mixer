@@ -35,36 +35,26 @@ export function ParallelWaveforms() {
   });
 
   useEffect(() => {
-    const unsubA = useDeckStore.subscribe(
-      (state) => {
-        const d = state.deckA;
-        return {
-          currentTime: d.currentTime,
-          duration: d.duration,
-          isPlaying: d.isPlaying,
-          bpm: Number(d.track?.bpm) || 120,
-          buffer: d.buffer,
-        };
-      },
-      (val) => {
-        deckARef.current = val;
-      }
-    );
-    const unsubB = useDeckStore.subscribe(
-      (state) => {
-        const d = state.deckB;
-        return {
-          currentTime: d.currentTime,
-          duration: d.duration,
-          isPlaying: d.isPlaying,
-          bpm: Number(d.track?.bpm) || 120,
-          buffer: d.buffer,
-        };
-      },
-      (val) => {
-        deckBRef.current = val;
-      }
-    );
+    const unsubA = useDeckStore.subscribe((state) => {
+      const d = state.deckA;
+      deckARef.current = {
+        currentTime: d.currentTime,
+        duration: d.duration,
+        isPlaying: d.isPlaying,
+        bpm: Number(d.track?.bpm) || 120,
+        buffer: d.buffer,
+      };
+    });
+    const unsubB = useDeckStore.subscribe((state) => {
+      const d = state.deckB;
+      deckBRef.current = {
+        currentTime: d.currentTime,
+        duration: d.duration,
+        isPlaying: d.isPlaying,
+        bpm: Number(d.track?.bpm) || 120,
+        buffer: d.buffer,
+      };
+    });
 
     return () => {
       unsubA();

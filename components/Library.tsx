@@ -370,7 +370,7 @@ export function Library() {
                           </div>
                         </div>
                       </div>
-                        <div className={clsx("flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity", isSmartMatchEnabled && masterDeck.track && !isMatch ? "opacity-0 pointer-events-none" : "")}>
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button
                             onClick={() => { if (item.track) useDeckStore.getState().loadTrack('A', item.track); toast.success('Loaded to Deck A'); }}
                             className="px-2 py-1 text-[9px] font-bold rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-accent hover:border-accent transition-colors"

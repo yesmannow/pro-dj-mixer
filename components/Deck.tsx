@@ -3,7 +3,6 @@
 import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import Spline from '@splinetool/react-spline';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -33,13 +32,8 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const loadTrack = useDeckStore((state) => state.loadTrack);
   const setPitch = useDeckStore((state) => state.setPitch);
   const toggleSync = useDeckStore((state) => state.toggleSync);
-  const { pitchPercent, sync } = useDeckStore(
-    (state) => {
-      const deck = deckId === 'A' ? state.deckA : state.deckB;
-      return { pitchPercent: deck.pitchPercent, sync: deck.sync };
-    },
-    useShallow
-  );
+  const pitchPercent = useDeckStore((state) => (deckId === 'A' ? state.deckA.pitchPercent : state.deckB.pitchPercent));
+  const sync = useDeckStore((state) => (deckId === 'A' ? state.deckA.sync : state.deckB.sync));
   const { tracks } = useLibraryStore();
   const { currentTime, duration, isPlaying, isLoading, track, togglePlay, scrubTrack, endScrub, getAudioData } = useDeckAudio(deckId);
   const { setCue, clearCue, loadCues, getCues, autoGenerateCues } = useTrackCueStore();
@@ -107,7 +101,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   });
 
   const tapTimesRef = useRef<number[]>([]);
-  const jogWheelRef = useRef<HTMLButtonElement>(null);
+  const jogWheelRef = useRef<HTMLDivElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
   const lastMoveTimeRef = useRef<number>(0);
