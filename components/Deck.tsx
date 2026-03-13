@@ -2,7 +2,7 @@
 
 import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
-import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
+import { Component, useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo, type ReactNode } from 'react';
 import Spline from '@splinetool/react-spline';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -19,6 +19,32 @@ import type { Track } from '@/lib/db';
 
 interface DeckProps {
   deckId: 'A' | 'B';
+}
+
+const SPLINE_SCENE_URL = 'https://prod.spline.design/NuXDSBxPTsCkXbkq/scene.splinecode';
+const SPLINE_LOAD_TIMEOUT_MS = 4000;
+
+class SplineErrorBoundary extends Component<
+  { children: ReactNode; onError: () => void },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch() {
+    this.props.onError();
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return null;
+    }
+
+    return this.props.children;
+  }
 }
 
 const isTrackPayload = (value: unknown): value is Track => {
@@ -43,6 +69,7 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [scratchOffset, setScratchOffset] = useState(0);
+  const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>('loading');
 
   const cuePoints = useMemo(() => (track?.id ? getCues(track.id) : []), [getCues, track]);
 
@@ -62,6 +89,18 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
     });
     return () => cancelAnimationFrame(frame);
   }, [track?.id]);
+
+  useEffect(() => {
+    if (splineStatus !== 'loading') {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSplineStatus((current) => (current === 'loading' ? 'fallback' : current));
+    }, SPLINE_LOAD_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [splineStatus]);
 
   const startStutterFromSlot = useCallback(async (slot: number) => {
     if (!track?.id) return;
@@ -369,20 +408,47 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
       spline?.findObjectByName?.('Disk') ??
       spline?.children?.[0] ??
       null;
+    setSplineStatus('ready');
     if (platterNodeRef.current) {
       const radians = ((currentTime / 1.8) * 360 + scratchOffset) * (Math.PI / 180);
       platterNodeRef.current.rotation.y = radians;
     }
   };
 
+  const handleSplineFailure = useCallback(() => {
+    splineAppRef.current = null;
+    platterNodeRef.current = null;
+    setSplineStatus('fallback');
+  }, []);
+
+  const fallbackRotation = -((currentTime + scratchOffset) / 1.8) * 360;
+
   const renderJogWheel = () => (
     <div className="jogwheel-wrapper flex flex-col gap-4 items-center">
       <div className="relative w-64 h-64">
-        <Spline
-          scene="https://prod.spline.design/NuXDSBxPTsCkXbkq/scene.splinecode"
-          onLoad={handleSplineLoad}
-          className="absolute inset-0"
-        />
+        {splineStatus !== 'ready' && (
+          <div className="absolute inset-0 rounded-full border border-white/8 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.14)_0%,rgba(18,18,18,0.95)_38%,rgba(5,5,5,1)_70%,rgba(0,0,0,1)_100%)] shadow-[inset_0_0_60px_rgba(0,0,0,0.85),0_0_30px_rgba(212,175,55,0.15)]">
+            <div
+              className="absolute inset-[14px] rounded-full border border-white/10 bg-[repeating-radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.08)_0px,rgba(255,255,255,0.02)_2px,rgba(0,0,0,0.55)_4px,rgba(0,0,0,0.9)_7px)]"
+              style={{ transform: `rotate(${fallbackRotation}deg)` }}
+            >
+              <div className="absolute inset-[20%] rounded-full border border-white/10 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.3),rgba(255,255,255,0.04)_28%,transparent_30%),linear-gradient(135deg,rgba(212,175,55,0.95),rgba(225,29,72,0.88))] shadow-[0_0_20px_rgba(212,175,55,0.18)]">
+                <div className="absolute inset-[34%] rounded-full border border-black/30 bg-black/75" />
+              </div>
+              <div className="absolute left-1/2 top-[10%] h-[18%] w-1 -translate-x-1/2 rounded-full bg-white/55 shadow-[0_0_10px_rgba(255,255,255,0.45)]" />
+            </div>
+            <div className="absolute inset-[8%] rounded-full border border-studio-gold/10" />
+          </div>
+        )}
+        {splineStatus !== 'fallback' && (
+          <SplineErrorBoundary onError={handleSplineFailure}>
+            <Spline
+              scene={SPLINE_SCENE_URL}
+              onLoad={handleSplineLoad}
+              className={clsx('absolute inset-0 transition-opacity duration-300', splineStatus === 'ready' ? 'opacity-100' : 'opacity-0')}
+            />
+          </SplineErrorBoundary>
+        )}
         <svg className="absolute inset-0 pointer-events-none" viewBox="0 0 256 256">
           <circle cx="128" cy="128" r="120" fill="transparent" stroke={isRight ? 'rgba(225, 29, 72, 0.25)' : 'rgba(212, 175, 55, 0.25)'} strokeWidth="3" />
           <circle
@@ -413,6 +479,11 @@ export function Deck({ deckId }: Readonly<DeckProps>) {
             {isLoading && (
               <div className="absolute inset-0 flex items-center justify-center">
                 <div className={clsx('w-12 h-12 border-2 border-t-transparent rounded-full animate-spin', deckBorder)}></div>
+              </div>
+            )}
+            {!isLoading && splineStatus === 'fallback' && (
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/65 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.24em] text-slate-300">
+                Local Visual
               </div>
             )}
           </div>

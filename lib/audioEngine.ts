@@ -8,6 +8,7 @@ export class AudioEngine {
   private bunkerDryGain: GainNode;
   private bunkerPreDelay: DelayNode;
   private bunkerImpulseLoaded = false;
+  private bunkerImpulseWarningLogged = false;
   private masterDataArray: Uint8Array<ArrayBuffer>;
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
@@ -416,7 +417,12 @@ export class AudioEngine {
       const array = await res.arrayBuffer();
       this.bunkerConvolver.buffer = await this.context.decodeAudioData(array.slice(0));
       this.bunkerImpulseLoaded = true;
-    } catch {
+    } catch (error) {
+      if (!this.bunkerImpulseWarningLogged) {
+        const message = error instanceof Error ? error.message : 'unknown bunker IR load failure';
+        console.warn(`[AudioEngine] Falling back to synthetic bunker impulse: ${message}`);
+        this.bunkerImpulseWarningLogged = true;
+      }
       // Fallback synthetic IR: exponential decay noise burst
       const length = this.context.sampleRate * 2.5;
       const impulse = this.context.createBuffer(2, length, this.context.sampleRate);

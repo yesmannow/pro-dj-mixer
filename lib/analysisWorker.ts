@@ -113,7 +113,7 @@ const handleAnalyze = (request: AnalysisRequest): AnalysisResponse => {
   return { id: request.id, bpm, duration: request.duration, overviewPeaks, error: null };
 };
 
-const ctx = self as any;
+const ctx = globalThis as any;
 
 ctx.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const request = event.data;

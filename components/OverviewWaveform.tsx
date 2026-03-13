@@ -30,18 +30,21 @@ export function OverviewWaveform({
   const peaks = useMemo(() => track?.overviewWaveform ?? [], [track?.overviewWaveform]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const node = containerRef.current;
+    if (!node) return;
 
     const handleResize = () => {
-      const rect = containerRef.current!;
-      const bounds = rect.getBoundingClientRect();
+      const element = containerRef.current;
+      if (!element || !element.isConnected) return;
+      const bounds = element.getBoundingClientRect();
+      if (!bounds.width || !bounds.height) return;
       setSize({ width: bounds.width, height: bounds.height });
     };
 
     handleResize();
 
     const resizeObserver = new ResizeObserver(handleResize);
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(node);
 
     window.addEventListener('resize', handleResize);
 
@@ -137,8 +140,10 @@ export function OverviewWaveform({
 
   const handlePointer = useCallback(
     (clientX: number) => {
-      if (!containerRef.current || !duration || duration <= 0 || !onScrubTo) return;
-      const rect = containerRef.current.getBoundingClientRect();
+      const element = containerRef.current;
+      if (!element || !element.isConnected || !duration || duration <= 0 || !onScrubTo) return;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width) return;
       const clampedX = Math.max(rect.left, Math.min(clientX, rect.right));
       const ratio = (clampedX - rect.left) / rect.width;
       const targetTime = ratio * duration;
@@ -184,4 +189,3 @@ export function OverviewWaveform({
     </div>
   );
 }
-
