@@ -132,7 +132,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const pitchPercent = useDeckStore((state) => (deckId === 'A' ? state.deckA.pitchPercent : state.deckB.pitchPercent));
   const sync = useDeckStore((state) => (deckId === 'A' ? state.deckA.sync : state.deckB.sync));
   const keyLock = useDeckStore((state) => (deckId === 'A' ? state.deckA.keyLock : state.deckB.keyLock));
-  const keyLockSupported = useDeckStore((state) => (deckId === 'A' ? state.deckA.keyLockSupported : state.deckB.keyLockSupported));
   const stems = useDeckStore((state) => (deckId === 'A' ? state.deckA.stems : state.deckB.stems));
   const toggleStem = useDeckStore((state) => state.toggleStem);
   const { tracks } = useLibraryStore();
@@ -840,15 +839,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
                 <span className="text-[7px] leading-none mt-0.5 opacity-60">{keyLock ? 'LOCK' : 'MODE'}</span>
               </MagneticButton>
            </div>
-           {keyLock && !keyLockSupported && (
-             <div
-               role="alert"
-               aria-live="polite"
-               className="mt-2 text-[10px] uppercase tracking-[0.2em] text-studio-crimson oled-display"
-             >
-               Key lock not supported: pitch changes with tempo.
-             </div>
-           )}
          </div>
 
         {/* Pitch / Tempo Fader */}
