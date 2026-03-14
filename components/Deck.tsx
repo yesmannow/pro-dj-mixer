@@ -1,11 +1,12 @@
 'use client';
 
-import { Play } from 'lucide-react';
+import { Play, Disc3, X } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useUIStore } from '@/store/uiStore';
 import { broadcastCue } from '@/lib/syncManager';
 import { getCueTrackHash, useTrackCueStore } from '@/store/trackCueStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
@@ -124,6 +125,7 @@ const extractThemeFromArtwork = (image: HTMLImageElement): DeckTheme | null => {
 
 export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const loadTrack = useDeckStore((state) => state.loadTrack);
+  const ejectTrack = useDeckStore((state) => state.ejectTrack);
   const setPitch = useDeckStore((state) => state.setPitch);
   const toggleSync = useDeckStore((state) => state.toggleSync);
   const toggleKeyLock = useDeckStore((state) => state.toggleKeyLock);
@@ -443,10 +445,21 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   };
 
   const title = track?.title || 'No Track Loaded';
-  const artist = track?.artist || 'Drag track here';
+  const artist = track?.artist || '';
   const bpm = track ? currentBpm : '--';
   const keySignature = track?.key || '--';
   const timeRemaining = track ? formatTime(duration - currentTime) : '00:00.00';
+
+  const handleLoadTrack = useCallback(() => {
+    if (compact) {
+      useUIStore.getState().setActiveTab('LIBRARY');
+    } else {
+      const state = useUIStore.getState();
+      if (!state.isLibraryVisible) {
+        state.toggleLibrary();
+      }
+    }
+  }, [compact]);
 
   const handleOverviewScrub = useCallback(
     (targetTime: number) => {
@@ -578,7 +591,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     <section
       ref={containerRef}
       className={clsx(
-        'deck-container deck-chassis rounded-xl border flex flex-col transition-colors duration-300 touch-none select-none shadow-2xl transform',
+        'deck-container deck-chassis rounded-xl border flex flex-col transition-colors duration-300 touch-none select-none shadow-2xl transform relative',
         compact ? 'deck-container--compact h-full gap-3 p-3.5' : 'gap-4 p-6',
         isDragOver
           ? "scale-[1.02] ring-2 ring-offset-0 ring-studio-gold border-transparent"
@@ -596,11 +609,24 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Glassmorphism background layer */}
+      {track?.artworkUrl && (
+        <div
+          className="absolute inset-0 z-0 overflow-hidden rounded-xl pointer-events-none"
+          aria-hidden="true"
+        >
+          <img
+            src={track.artworkUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover opacity-15 blur-3xl scale-110"
+          />
+        </div>
+      )}
       <p id={dropDescriptionId} className="sr-only">
         Drag and drop a track onto this deck to load it.
       </p>
       {!compact && (
-        <div className="relative" style={{ opacity: WAVEFORM_BASE_OPACITY + volumeScale * WAVEFORM_OPACITY_RANGE }}>
+        <div className="relative z-10" style={{ opacity: WAVEFORM_BASE_OPACITY + volumeScale * WAVEFORM_OPACITY_RANGE }}>
           <OverviewWaveform
             deckId={deckId}
             duration={duration}
@@ -612,19 +638,30 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           />
         </div>
       )}
-      <div className={compact ? 'flex items-start justify-between gap-3 text-slate-100' : 'flex items-center justify-between text-slate-100'}>
-        <div>
-           <h3
-             ref={titleGlowRef}
-             id={deckTitleId}
-             className={clsx('font-[800] tracking-tight neon-text-glow', compact ? 'text-sm' : 'text-[length:var(--step-1)]')}
-             style={{ fontFamily: 'var(--font-heading)', color: deckTheme.primary }}
-           >
-             {title}
-          </h3>
-          <div className={compact ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
-            <p className={compact ? 'text-[11px] text-slate-300' : 'text-slate-300 text-[length:var(--step-0)]'}>
-              {artist} • {isEditingBpm ? (
+      <div className={clsx('relative z-10', compact ? 'flex items-start justify-between gap-3 text-slate-100' : 'flex items-center justify-between text-slate-100')}>
+        {track ? (
+          <div>
+            <div className="flex items-center gap-2">
+              <h3
+                ref={titleGlowRef}
+                id={deckTitleId}
+                className={clsx('font-[800] tracking-tight neon-text-glow', compact ? 'text-sm' : 'text-[length:var(--step-1)]')}
+                style={{ fontFamily: 'var(--font-heading)', color: deckTheme.primary }}
+              >
+                {title}
+              </h3>
+              <button
+                type="button"
+                onClick={() => ejectTrack(deckId)}
+                className="p-1 rounded hover:bg-white/10 text-slate-500 hover:text-slate-200 transition-colors"
+                title="Eject track"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className={compact ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
+              <p className={compact ? 'text-[11px] text-slate-300' : 'text-slate-300 text-[length:var(--step-0)]'}>
+                {artist} • {isEditingBpm ? (
                 <input
                   type="number"
                   className="oled-display font-bold text-slate-100 tabular-nums bg-transparent border-b border-studio-gold/60 outline-none w-16 text-center"
@@ -668,6 +705,30 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
             </button>
           </div>
         </div>
+        ) : (
+          <div className="flex-1 flex items-center">
+            <button
+              type="button"
+              onClick={handleLoadTrack}
+              className={clsx(
+                'mpc-pad flex items-center justify-center gap-2 !aspect-auto',
+                compact ? 'w-full h-12' : 'w-full h-16'
+              )}
+              style={{
+                borderColor: `rgba(${deckTheme.primaryRgb}, 0.4)`,
+                ['--deck-primary' as string]: deckTheme.primary,
+              }}
+            >
+              <Disc3 className={compact ? 'w-4 h-4' : 'w-5 h-5'} style={{ color: deckTheme.primary }} />
+              <span
+                className={clsx('oled-display font-black tracking-[0.2em] uppercase', compact ? 'text-[10px]' : 'text-xs')}
+                style={{ color: deckTheme.primary }}
+              >
+                + Load Track
+              </span>
+            </button>
+          </div>
+        )}
         <div className="text-right">
           <p className={compact ? 'oled-display font-bold text-slate-200 tabular-nums neon-text-glow text-base' : 'oled-display font-bold text-slate-200 tabular-nums neon-text-glow text-[length:var(--step-3)]'}>{timeRemaining}</p>
           <p className={compact ? 'text-slate-500 text-[9px] uppercase tracking-[0.2em]' : 'text-slate-500 text-[10px] uppercase tracking-widest'}>Remaining</p>
@@ -677,7 +738,12 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
       {/* Stem LEDs */}
       <div className={compact ? 'flex items-center gap-2' : 'flex items-center gap-3'}>
         {(['VOC', 'DRM', 'INST'] as const).map((stem) => {
-          const colors: Record<string, string> = { VOC: '#00BFFF', DRM: '#FF003C', INST: '#FFD700' };
+          const colors: Record<string, string> = { VOC: '#FF0000', DRM: '#0096FF', INST: '#D4AF37' };
+          const glows: Record<string, string> = {
+            VOC: 'rgba(255,0,0,0.5)',
+            DRM: 'rgba(0,150,255,0.5)',
+            INST: 'rgba(212,175,55,0.5)',
+          };
           const stemKeyMap: Record<string, 'vocals' | 'drums' | 'inst'> = { VOC: 'vocals', DRM: 'drums', INST: 'inst' };
           const isActive = stems[stemKeyMap[stem]];
           return (
@@ -685,7 +751,10 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
               key={stem}
               type="button"
               className={clsx('stem-led', isActive && 'stem-led-active')}
-              style={{ ['--stem-color' as string]: colors[stem] }}
+              style={{
+                ['--stem-color' as string]: colors[stem],
+                ['--stem-glow' as string]: glows[stem],
+              }}
               onClick={() => { toggleStem(deckId, stemKeyMap[stem]); if (navigator.vibrate) navigator.vibrate(20); }}
             >
               {stem}
