@@ -112,7 +112,15 @@ export class AudioEngine {
   private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
 
   private constructor() {
-    const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
+    if (typeof window === 'undefined') {
+      throw new Error('AudioEngine can only be constructed in the browser.');
+    }
+
+    const AudioContextCtor = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!AudioContextCtor) {
+      throw new Error('Web Audio API is unavailable in this browser.');
+    }
+
     try {
       this.context = new AudioContextCtor({
         latencyHint: this.latencyHint,
@@ -163,6 +171,9 @@ export class AudioEngine {
   }
 
   public static getInstance(): AudioEngine {
+    if (typeof window === 'undefined') {
+      throw new Error('AudioEngine is unavailable during server-side rendering.');
+    }
     if (!AudioEngine.instance) {
       AudioEngine.instance = new AudioEngine();
     }

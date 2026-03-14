@@ -14,6 +14,9 @@ interface RecordedTrackEvent {
 
 const formatDownloadTimestamp = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}_${String(date.getHours()).padStart(2, '0')}-${String(date.getMinutes()).padStart(2, '0')}-${String(date.getSeconds()).padStart(2, '0')}`;
+const MIN_24BIT_SIGNED = 0x800000;
+const MAX_24BIT_POSITIVE = 0x7fffff;
+const FULL_24BIT_RANGE = 0x1000000;
 
 const formatSetTimestamp = (seconds: number) => {
   const hours = Math.floor(seconds / 3600);
@@ -33,17 +36,75 @@ const downloadBlob = (blob: Blob, fileName: string) => {
   window.setTimeout(() => URL.revokeObjectURL(url), 5000);
 };
 
+const mergeChunks = (chunks: Float32Array[]) => {
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const merged = new Float32Array(totalLength);
+  let offset = 0;
+  chunks.forEach((chunk) => {
+    merged.set(chunk, offset);
+    offset += chunk.length;
+  });
+  return merged;
+};
+
+const writeAscii = (view: DataView, offset: number, value: string) => {
+  for (let index = 0; index < value.length; index += 1) {
+    view.setUint8(offset + index, value.charCodeAt(index));
+  }
+};
+
+const encode24BitWav = (leftChannel: Float32Array, rightChannel: Float32Array, sampleRate: number) => {
+  const frameCount = Math.min(leftChannel.length, rightChannel.length);
+  const blockAlign = 2 * 3;
+  const byteRate = sampleRate * blockAlign;
+  const dataSize = frameCount * blockAlign;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  writeAscii(view, 0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, 'WAVE');
+  writeAscii(view, 12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 2, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 24, true);
+  writeAscii(view, 36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  let offset = 44;
+  for (let index = 0; index < frameCount; index += 1) {
+    [leftChannel[index], rightChannel[index]].forEach((sample) => {
+      const clamped = Math.max(-1, Math.min(1, sample));
+      const scaled = clamped < 0 ? Math.round(clamped * MIN_24BIT_SIGNED) : Math.round(clamped * MAX_24BIT_POSITIVE);
+      const twosComplement = scaled < 0 ? scaled + FULL_24BIT_RANGE : scaled;
+      view.setUint8(offset, twosComplement & 0xff);
+      view.setUint8(offset + 1, (twosComplement >> 8) & 0xff);
+      view.setUint8(offset + 2, (twosComplement >> 16) & 0xff);
+      offset += 3;
+    });
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
 export function useMediaRecorder() {
   const [isRecording, setIsRecording] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);
   const sessionSnapshotRef = useRef<SessionState | null>(null);
   const trackEventsRef = useRef<RecordedTrackEvent[]>([]);
   const lastTrackHashesRef = useRef<Record<'A' | 'B', string | null>>({ A: null, B: null });
   const recordingTimestampRef = useRef<string>('');
+  const recorderContextRef = useRef<AudioContext | null>(null);
+  const sourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const processorNodeRef = useRef<ScriptProcessorNode | null>(null);
+  const monitorGainRef = useRef<GainNode | null>(null);
+  const channelChunksRef = useRef<[Float32Array[], Float32Array[]]>([[], []]);
 
   const snapshotSessionState = useCallback(() => {
     const mixerState = useMixerStore.getState();
@@ -89,49 +150,46 @@ export function useMediaRecorder() {
   }, [snapshotSessionState]);
 
   const startRecording = useCallback(() => {
-    if (mediaRecorderRef.current?.state === 'recording') return;
+    if (typeof window === 'undefined') return;
+    if (recorderContextRef.current) return;
 
-    const stream = AudioEngine.getInstance().getRecordingStream();
+    const engine = AudioEngine.getInstance();
+    const stream = engine.getRecordingStream();
     if (!stream) return;
-    const recordingProfile = AudioEngine.getInstance().getRecordingProfile();
+    const recordingProfile = engine.getRecordingProfile();
+    const RecorderContextCtor = (window.AudioContext || (window as any).webkitAudioContext) as typeof AudioContext | undefined;
+    if (!RecorderContextCtor) return;
 
-    // Pick the best supported MIME type
-    const mimeType = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', '']
-      .find((type) => type === '' || MediaRecorder.isTypeSupported(type)) ?? '';
+    const recorderContext = new RecorderContextCtor({ sampleRate: recordingProfile.sampleRate });
+    const sourceNode = recorderContext.createMediaStreamSource(stream);
+    const processorNode = recorderContext.createScriptProcessor(4096, 2, 2);
+    const monitorGain = recorderContext.createGain();
+    monitorGain.gain.value = 0;
+    sourceNode.connect(processorNode);
+    processorNode.connect(monitorGain);
+    monitorGain.connect(recorderContext.destination);
 
-    const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-    chunksRef.current = [];
+    channelChunksRef.current = [[], []];
+    processorNode.onaudioprocess = (event) => {
+      const inputBuffer = event.inputBuffer;
+      const left = new Float32Array(inputBuffer.getChannelData(0));
+      const right = inputBuffer.numberOfChannels > 1
+        ? new Float32Array(inputBuffer.getChannelData(1))
+        : new Float32Array(inputBuffer.getChannelData(0));
+      channelChunksRef.current[0].push(left);
+      channelChunksRef.current[1].push(right);
+    };
+
     elapsedRef.current = 0;
     trackEventsRef.current = [];
     lastTrackHashesRef.current = { A: null, B: null };
     recordingTimestampRef.current = formatDownloadTimestamp(new Date());
+    recorderContextRef.current = recorderContext;
+    sourceNodeRef.current = sourceNode;
+    processorNodeRef.current = processorNode;
+    monitorGainRef.current = monitorGain;
     snapshotSessionState();
     captureTrackTransitions(0);
-    mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
-    mr.onstop = () => {
-      const type = mr.mimeType || 'audio/webm';
-      const blob = new Blob(chunksRef.current, { type });
-      const ext = type.includes('ogg') ? 'ogg' : 'webm';
-      const ts = recordingTimestampRef.current || formatDownloadTimestamp(new Date());
-      const sessionState = sessionSnapshotRef.current ?? snapshotSessionState();
-      const setlistLines = [
-        'PRO DJ STUDIO SETLIST',
-        `Capture: ${ts}`,
-        `Master Tap Point: ${recordingProfile.signalPath}`,
-        `Render Target: ${Math.round(recordingProfile.sampleRate / 1000)}kHz / ${recordingProfile.bitDepth}-bit`,
-        '',
-        ...trackEventsRef.current.map((event) => {
-          const trackEntry = sessionState.trackHashes[event.trackHash];
-          const label = trackEntry ? `${trackEntry.artist} — ${trackEntry.title}` : event.trackHash;
-          return `[${formatSetTimestamp(event.elapsedSeconds)}] Deck ${event.deckId} • ${label}`;
-        }),
-      ];
-
-      downloadBlob(blob, `dj-mix-${ts}.${ext}`);
-      downloadBlob(new Blob([setlistLines.join('\n')], { type: 'text/plain;charset=utf-8' }), `dj-mix-${ts}-setlist.txt`);
-    };
-    mr.start();
-    mediaRecorderRef.current = mr;
     setIsRecording(true);
     setElapsedSeconds(0);
     timerRef.current = setInterval(() => {
@@ -142,13 +200,46 @@ export function useMediaRecorder() {
   }, [captureTrackTransitions, snapshotSessionState]);
 
   const stopRecording = useCallback(() => {
+    const recorderContext = recorderContextRef.current;
+    if (!recorderContext) return;
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
     captureTrackTransitions(elapsedRef.current);
     snapshotSessionState();
-    mediaRecorderRef.current?.stop();
+    processorNodeRef.current?.disconnect();
+    sourceNodeRef.current?.disconnect();
+    monitorGainRef.current?.disconnect();
+    const sessionState = sessionSnapshotRef.current ?? snapshotSessionState();
+    const recordingProfile = AudioEngine.getInstance().getRecordingProfile();
+    const ts = recordingTimestampRef.current || formatDownloadTimestamp(new Date());
+    const leftChannel = mergeChunks(channelChunksRef.current[0]);
+    const rightChannel = mergeChunks(channelChunksRef.current[1]);
+    const wavBlob = encode24BitWav(leftChannel, rightChannel, recordingProfile.sampleRate);
+    const setlistLines = [
+      'PRO DJ STUDIO SETLIST',
+      `Capture: ${ts}`,
+      `Master Tap Point: ${recordingProfile.signalPath}`,
+      `Render Target: ${Math.round(recordingProfile.sampleRate / 1000)}kHz / ${recordingProfile.bitDepth}-bit WAV`,
+      '',
+      ...trackEventsRef.current.map((event) => {
+        const trackEntry = sessionState.trackHashes[event.trackHash];
+        const label = trackEntry ? `${trackEntry.artist} — ${trackEntry.title}` : event.trackHash;
+        return `[${formatSetTimestamp(event.elapsedSeconds)}] Deck ${event.deckId} • ${label}`;
+      }),
+    ];
+
+    void recorderContext.close();
+    recorderContextRef.current = null;
+    sourceNodeRef.current = null;
+    processorNodeRef.current = null;
+    monitorGainRef.current = null;
+    channelChunksRef.current = [[], []];
+
+    downloadBlob(wavBlob, `dj-mix-${ts}.wav`);
+    downloadBlob(new Blob([setlistLines.join('\n')], { type: 'text/plain;charset=utf-8' }), `dj-mix-${ts}-setlist.txt`);
     setIsRecording(false);
   }, [captureTrackTransitions, snapshotSessionState]);
 

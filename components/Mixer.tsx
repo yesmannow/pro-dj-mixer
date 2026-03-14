@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
+import dynamic from 'next/dynamic';
 import { AudioEngine } from '@/lib/audioEngine';
 import { useMixerStore } from '@/store/mixerStore';
 import { useDeckStore } from '@/store/deckStore';
@@ -8,7 +9,6 @@ import { useTrackCueStore } from '@/store/trackCueStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useUIStore } from '@/store/uiStore';
 import { getCompatibleKeys } from '@/lib/harmonicKeys';
-import { MasterMeter } from '@/components/MasterMeter';
 import { buildSessionState, saveSessionState } from '@/lib/syncManager';
 import { useMIDIManager } from '@/hooks/useMIDIManager';
 import { buildAICrate } from '@/lib/aiCrate';
@@ -30,6 +30,9 @@ const DEFAULT_RECORDING_PROFILE = {
   sampleRate: 48000,
   bitDepth: 24,
 };
+const MasterMeter = dynamic(() => import('@/components/MasterMeter').then((module) => module.MasterMeter), {
+  ssr: false,
+});
 
 const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);

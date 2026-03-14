@@ -134,7 +134,10 @@ export const buildAICrate = (
       };
     })
     .filter((match): match is AICrateMatch => match !== null)
-    .sort((left, right) => right.score - left.score || right.track.createdAt - left.track.createdAt)
+    .sort((left, right) => (
+      right.score - left.score ||
+      (Number(right.track.createdAt) || 0) - (Number(left.track.createdAt) || 0)
+    ))
     .slice(0, limit);
 
   return { criteria, matches };
