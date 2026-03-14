@@ -62,6 +62,17 @@ function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyR
   };
 }
 
+/** Zero-crossing rate threshold below which a bar is classified as bass */
+const ZCR_BASS_THRESHOLD = 0.1;
+/** Zero-crossing rate threshold below which a bar is classified as mid (above = high) */
+const ZCR_MID_THRESHOLD = 0.3;
+/** Waveform bar color for bass-dominant regions */
+const COLOR_BASS = '#FF003C';
+/** Waveform bar color for mid-dominant regions */
+const COLOR_MID = '#FFD700';
+/** Waveform bar color for high-dominant regions */
+const COLOR_HIGH = '#FFFFFF';
+
 /**
  * Determines the color of a waveform bar based on zero-crossing rate analysis.
  * Low ZCR → bass → Crimson, Medium → Gold, High → White.
@@ -74,9 +85,9 @@ function getBarColor(samples: Float32Array, right: Float32Array | null, start: n
     if ((current >= 0) !== (prev >= 0)) zeroCrossings++;
   }
   const zcr = zeroCrossings / count;
-  if (zcr < 0.1) return '#FF003C'; // Low = Crimson
-  if (zcr < 0.3) return '#FFD700'; // Mid = Gold
-  return '#FFFFFF'; // High = White
+  if (zcr < ZCR_BASS_THRESHOLD) return COLOR_BASS;
+  if (zcr < ZCR_MID_THRESHOLD) return COLOR_MID;
+  return COLOR_HIGH;
 }
 
 /**

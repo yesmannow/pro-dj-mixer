@@ -1,6 +1,9 @@
 import { useRef } from 'react';
 import { clsx } from 'clsx';
 
+/** Time window in ms for double-tap detection */
+const DOUBLE_TAP_THRESHOLD_MS = 300;
+
 interface PitchFaderProps {
   pitchPercent: number;
   temporaryPitch: number;
@@ -46,7 +49,7 @@ export function PitchFader({
 
   const handlePointerDown = () => {
     const now = Date.now();
-    if (now - lastTapRef.current < 300) {
+    if (now - lastTapRef.current < DOUBLE_TAP_THRESHOLD_MS) {
       // Double-tap: reset to 0
       onPitchChange(0);
       navigator.vibrate?.(10);

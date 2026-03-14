@@ -145,6 +145,13 @@ export class AudioEngine {
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
   private static readonly TARGET_RECORDING_SAMPLE_RATE = 48000;
   private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
+  // ── Bipolar filter constants ──
+  private static readonly FILTER_CENTER_VALUE = 50;
+  private static readonly FILTER_BYPASS_THRESHOLD = 1;
+  private static readonly FILTER_MAX_FREQ = 20000;
+  private static readonly FILTER_MIN_FREQ = 20;
+  private static readonly FILTER_BASE_RESONANCE = 0.7;
+  private static readonly FILTER_RESONANCE_RANGE = 4;
 
   private constructor() {
     if (typeof window === 'undefined') {
@@ -600,25 +607,26 @@ export class AudioEngine {
     const norm = Math.max(0, Math.min(1, value / 100));
 
     if (type === 'filter') {
-      if (Math.abs(value - 50) < 1) {
+      const center = AudioEngine.FILTER_CENTER_VALUE;
+      if (Math.abs(value - center) < AudioEngine.FILTER_BYPASS_THRESHOLD) {
         // Neutral: bypass by opening the filter wide
         fx.filter.type = 'lowpass';
-        fx.filter.frequency.setTargetAtTime(20000, now, 0.03);
-        fx.filter.Q.setTargetAtTime(0.7, now, 0.03);
+        fx.filter.frequency.setTargetAtTime(AudioEngine.FILTER_MAX_FREQ, now, 0.03);
+        fx.filter.Q.setTargetAtTime(AudioEngine.FILTER_BASE_RESONANCE, now, 0.03);
         return;
       }
-      if (value < 50) {
+      if (value < center) {
         // Lowpass sweep down
-        const cutoff = 20000 * Math.pow(0.01, (50 - value) / 50);
+        const cutoff = AudioEngine.FILTER_MAX_FREQ * Math.pow(AudioEngine.FILTER_MIN_FREQ / AudioEngine.FILTER_MAX_FREQ, (center - value) / center);
         fx.filter.type = 'lowpass';
         fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
       } else {
         // Highpass sweep up
-        const cutoff = 20 * Math.pow(1000, (value - 50) / 50);
+        const cutoff = AudioEngine.FILTER_MIN_FREQ * Math.pow(AudioEngine.FILTER_MAX_FREQ / AudioEngine.FILTER_MIN_FREQ, (value - center) / center);
         fx.filter.type = 'highpass';
         fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
       }
-      const resonance = 0.7 + (1 - Math.abs(value - 50) / 50) * 4;
+      const resonance = AudioEngine.FILTER_BASE_RESONANCE + (1 - Math.abs(value - center) / center) * AudioEngine.FILTER_RESONANCE_RANGE;
       fx.filter.Q.setTargetAtTime(resonance, now, 0.03);
       return;
     }

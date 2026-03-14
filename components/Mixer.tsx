@@ -25,6 +25,10 @@ const SPARKLINE_HISTORY_SIZE = 8;
 /** Energy levels for sparkline color transitions (green → yellow → red) */
 const SPARKLINE_HIGH_ENERGY = 0.6;
 const SPARKLINE_MID_ENERGY = 0.3;
+/** Minimum beat-phase offset before the neural crossfader applies a correction */
+const PHASE_ALIGNMENT_THRESHOLD = 0.01;
+/** Fraction of the computed timing correction applied per frame (avoids oscillation) */
+const PHASE_CORRECTION_DAMPING = 0.6;
 const DEFAULT_AI_CRATE_PROMPT = 'Show me tracks for a 124 BPM house set.';
 const DEFAULT_RECORDING_PROFILE = {
   sampleRate: 48000,
@@ -514,12 +518,12 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       let phaseDelta = phaseB - phaseA;
       if (phaseDelta > 0.5) phaseDelta -= 1;
       if (phaseDelta < -0.5) phaseDelta += 1;
-      if (Math.abs(phaseDelta) >= 0.01) {
+      if (Math.abs(phaseDelta) >= PHASE_ALIGNMENT_THRESHOLD) {
         const targetDeck = crossfader <= 0 ? 'B' : 'A';
         const targetState = targetDeck === 'A' ? deckA : deckB;
         const baseRate = Math.max(0.5, Math.min(2.0, 1 + targetState.pitchPercent / 100));
         const correctionWindow = Math.min(0.005, Math.abs(phaseDelta) * Math.min(secPerBeatA, secPerBeatB));
-        const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * 0.6;
+        const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * PHASE_CORRECTION_DAMPING;
         engine.setDeckPlaybackRate(targetDeck, correctedRate);
       }
 
