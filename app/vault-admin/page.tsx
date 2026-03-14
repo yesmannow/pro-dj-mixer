@@ -219,6 +219,12 @@ export default function VaultAdminPage() {
     if (f) handleFileSelect(f);
   };
 
+  // ── Clear file selection (reused in upload/sync error paths) ──────────────
+  const clearFileSelection = useCallback(() => {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
+
   // ── Upload handler ─────────────────────────────────────────────────────
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -307,10 +313,11 @@ export default function VaultAdminPage() {
       });
 
       // ── Step 3: Update library.json manifest ─────────────────────────────
-      // Derive the public audioUrl from the R2 object key.
-      const r2PublicRoot = R2_PUBLIC_BASE.replace(/\/[^/]+$/, '');
-      const audioUrl = `${r2PublicRoot}/${key}`;
-      const resolvedTitle = trackTitle.trim() || selectedFile.name.replace(/\.[^/.]+$/, '');
+      // Derive the public audioUrl from the R2 object key using the bucket root.
+      const audioUrl = `${R2_PUBLIC_ROOT}/${key}`;
+      // Fallback title: handleFileSelect auto-populates trackTitle, but the user
+      // may have cleared it manually — derive from filename as a safety net.
+      const resolvedTitle = trackTitle.trim() || titleFromFilename(selectedFile.name);
 
       try {
         const syncRes = await fetch('/api/vault/sync', {
@@ -342,8 +349,7 @@ export default function VaultAdminPage() {
             progress: 100,
             uploadedKey: key,
           });
-          setSelectedFile(null);
-          if (fileInputRef.current) fileInputRef.current.value = '';
+          clearFileSelection();
           return;
         }
       } catch (syncErr) {
@@ -353,8 +359,7 @@ export default function VaultAdminPage() {
           progress: 100,
           uploadedKey: key,
         });
-        setSelectedFile(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
+        clearFileSelection();
         return;
       }
 
@@ -370,7 +375,7 @@ export default function VaultAdminPage() {
       setTrackArtist('');
       setTrackBpm('');
       setTrackKey('');
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      clearFileSelection();
     } catch (err) {
       setStatus({
         phase: 'error',

@@ -2,6 +2,16 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { NextResponse } from 'next/server';
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Default R2 bucket name — must match R2_BUCKET_NAME env var (see .env.example). */
+const DEFAULT_BUCKET = 'audio';
+
+/** Object key for the track manifest file inside the bucket. */
+const MANIFEST_KEY = 'library.json';
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -12,6 +22,21 @@ interface TrackEntry {
   key: string;
   audioUrl: string;
   createdAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns true when the AWS SDK error signals that the object doesn't exist.
+ * R2 surfaces this as either `NoSuchKey` (S3 code) or `NotFound` (HTTP 404).
+ */
+function isNotFoundError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as Record<string, unknown>;
+  const code = e.Code ?? e.name;
+  return code === 'NoSuchKey' || code === 'NotFound' || code === '404';
 }
 
 // ---------------------------------------------------------------------------
@@ -55,7 +80,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   // ── 3. Read environment config ───────────────────────────────────────────
   const endpoint = process.env.R2_ENDPOINT;
-  const bucketName = process.env.R2_BUCKET_NAME ?? 'audio';
+  const bucketName = process.env.R2_BUCKET_NAME ?? DEFAULT_BUCKET;
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 
@@ -68,8 +93,6 @@ export async function POST(req: Request): Promise<NextResponse> {
   }
 
   // ── 4. Read → update → write library.json ────────────────────────────────
-  const MANIFEST_KEY = 'library.json';
-
   try {
     const client = new S3Client({
       region: 'auto',
@@ -93,10 +116,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       }
     } catch (err: unknown) {
       // NoSuchKey / 404 means no manifest exists yet — start with empty array.
-      const code =
-        (err as { Code?: string })?.Code ??
-        (err as { name?: string })?.name;
-      if (code !== 'NoSuchKey' && code !== 'NotFound' && code !== '404') {
+      if (!isNotFoundError(err)) {
         throw err;
       }
     }

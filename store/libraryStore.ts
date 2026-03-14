@@ -34,6 +34,58 @@ export const PIKO_VAULT_TRACKS = [
 ] as const;
 
 type PikoVaultTrack = (typeof PIKO_VAULT_TRACKS)[number];
+
+// ---------------------------------------------------------------------------
+// R2 manifest support
+// ---------------------------------------------------------------------------
+
+/** Shape of each entry stored in library.json by the /api/vault/sync route. */
+interface ManifestEntry {
+  title: string;
+  artist: string;
+  bpm: string;
+  key: string;
+  audioUrl: string;
+  createdAt: number;
+}
+
+/**
+ * Fetches newly-uploaded tracks from the R2 manifest (library.json) and
+ * normalises them into the same shape as PIKO_VAULT_TRACKS so they can flow
+ * through the existing loadPikoVault pipeline.
+ *
+ * Falls back to an empty array if NEXT_PUBLIC_R2_PUBLIC_URL is unset, the
+ * file doesn't exist yet, or the network request fails for any reason.
+ */
+const fetchManifestTracks = async (): Promise<{ id: string; title: string; artist: string; url: string }[]> => {
+  const r2PublicUrl = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
+  if (!r2PublicUrl) return [];
+
+  try {
+    const res = await fetch(`https://${r2PublicUrl}/library.json`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const raw: unknown = await res.json();
+    if (!Array.isArray(raw)) return [];
+
+    return (raw as ManifestEntry[])
+      .filter((e) => e && typeof e.audioUrl === 'string' && e.audioUrl.trim())
+      .map((e) => {
+        const title = typeof e.title === 'string' ? e.title.trim() : '';
+        const artist = typeof e.artist === 'string' ? e.artist.trim() : '';
+        // Build a stable ID from audioUrl so it survives manifest reordering.
+        const stableKey = e.audioUrl.trim().replace(/[^a-z0-9]/gi, '-').slice(-48);
+        return {
+          id: `manifest-${stableKey}`,
+          title: title || 'Unknown Track',
+          artist,
+          url: e.audioUrl.trim(),
+        };
+      });
+  } catch {
+    return [];
+  }
+};
+
 type CachedAnalysis = {
   bpm: string;
   duration: string;
@@ -49,6 +101,14 @@ const decodeContext =
     ? new (window.AudioContext || (window as any).webkitAudioContext)()
     : null;
 
+/** Minimal shape shared by hardcoded vault tracks and manifest-fetched tracks. */
+interface VaultTrack {
+  id: string;
+  title: string;
+  artist: string;
+  url: string;
+}
+
 interface LibraryState {
   tracks: Track[];
   processingTracks: { id: string; name: string }[];
@@ -61,7 +121,7 @@ interface LibraryState {
   addTrack: (file: File) => Promise<void>;
   seedLibrary: () => Promise<void>;
   queueFilesForIngestion: (files: File[]) => Promise<void>;
-  loadPikoVault: (cloudTracks?: readonly PikoVaultTrack[]) => Promise<void>;
+  loadPikoVault: (cloudTracks?: ReadonlyArray<VaultTrack>) => Promise<void>;
 }
 
 const mockAnalysis = async (file: File | string) => {
@@ -176,10 +236,10 @@ const dedupeVisibleTracks = (tracks: Track[]) => {
 };
 
 const getFileSourceId = (file: File) => `file:${file.name}:${file.size}:${file.lastModified}`;
-const getCloudSourceId = (track: PikoVaultTrack) => `vault:${track.id}`;
-const getVaultTrackIds = (cloudTracks: readonly PikoVaultTrack[]) => new Set(cloudTracks.map((track) => getCloudSourceId(track)));
+const getCloudSourceId = (track: VaultTrack) => `vault:${track.id}`;
+const getVaultTrackIds = (cloudTracks: readonly VaultTrack[]) => new Set(cloudTracks.map((track) => getCloudSourceId(track)));
 
-const countVaultReadyTracks = (tracks: Track[], cloudTracks: readonly PikoVaultTrack[]) => {
+const countVaultReadyTracks = (tracks: Track[], cloudTracks: readonly VaultTrack[]) => {
   const vaultIds = getVaultTrackIds(cloudTracks);
   return tracks.filter((track) => track.sourceId && vaultIds.has(track.sourceId)).length;
 };
@@ -451,10 +511,19 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     broadcastLibraryRefresh();
   },
 
-  loadPikoVault: async (cloudTracks = PIKO_VAULT_TRACKS) => {
+  loadPikoVault: async (cloudTracks?: ReadonlyArray<VaultTrack>) => {
     if (get().isProcessingQueue) {
       toast.error('A queue is already processing. Please wait.');
       return;
+    }
+
+    // When called without an explicit list, merge the hardcoded vault tracks
+    // with any newly uploaded tracks fetched from the R2 library.json manifest.
+    if (!cloudTracks) {
+      const manifestTracks = await fetchManifestTracks();
+      const existingUrls = new Set<string>(PIKO_VAULT_TRACKS.map((t) => t.url));
+      const newManifestTracks = manifestTracks.filter((t) => !existingUrls.has(t.url));
+      cloudTracks = (Array.from(PIKO_VAULT_TRACKS) as VaultTrack[]).concat(newManifestTracks);
     }
 
     if (cloudTracks.length === 0) {
