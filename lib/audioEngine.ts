@@ -40,6 +40,14 @@ export class AudioEngine {
   private workletReadyPromise: Promise<boolean> | null = null;
   private workletWarningLogged = false;
   private recordingDestination: MediaStreamAudioDestinationNode | null = null;
+  // Per-deck SoundTouch fallback engine for Key Lock (used when native preservesPitch is absent)
+  private deckKeyLockEngines: Partial<Record<'A' | 'B', {
+    node: ScriptProcessorNode;
+    filter: { sourcePosition: number; extract(target: Float32Array, numFrames: number): number; clear(): void };
+    soundTouch: { tempo: number };
+    buffer: AudioBuffer;
+  }>> = {};
+  private nativeKeyLockSupported: boolean | null = null;
   private readonly latencyHint: AudioContextLatencyCategory = 'interactive';
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
@@ -847,17 +855,24 @@ export class AudioEngine {
     const deck = this.decks[deckId];
     const enabled = !deck.keyLockEnabled;
     deck.keyLockEnabled = enabled;
-    const supported = this.getPitchLockSupport();
     if (deck.source) {
       this.applyPitchLock(deck.source, deckId);
     }
-    return { enabled, supported };
+    // Key Lock is always "supported": either via native preservesPitch or SoundTouch fallback.
+    return { enabled, supported: true };
   }
 
   public setDeckPlaybackRate(deckId: 'A' | 'B', playbackRate: number) {
     const deck = this.decks[deckId];
     const targetRate = Math.max(0.5, Math.min(2.0, playbackRate));
     deck.playbackRate = targetRate;
+
+    // When the SoundTouch key-lock engine is active, drive its tempo instead of the source.
+    const kle = this.deckKeyLockEngines[deckId];
+    if (kle) {
+      kle.soundTouch.tempo = targetRate;
+      return;
+    }
 
     if (!deck.source) {
       return;
@@ -963,6 +978,9 @@ export class AudioEngine {
     if (fxBus) {
       fxBus.output.disconnect();
     }
+
+    // Clean up the SoundTouch key-lock engine if active.
+    this.cleanupKeyLockEngine(deckId);
   }
 
   public getRecordingStream(): MediaStream | null {
@@ -982,12 +1000,112 @@ export class AudioEngine {
   }
 
   private getPitchLockSupport() {
+    if (this.nativeKeyLockSupported !== null) return this.nativeKeyLockSupported;
     const probe = this.context.createBufferSource() as AudioBufferSourceNode & {
       preservesPitch?: boolean;
       mozPreservesPitch?: boolean;
       webkitPreservesPitch?: boolean;
     };
-    return 'preservesPitch' in probe || 'mozPreservesPitch' in probe || 'webkitPreservesPitch' in probe;
+    this.nativeKeyLockSupported = (
+      'preservesPitch' in probe ||
+      'mozPreservesPitch' in probe ||
+      'webkitPreservesPitch' in probe
+    );
+    return this.nativeKeyLockSupported;
+  }
+
+  /** Returns true when the browser natively supports pitch-invariant playback rate changes. */
+  public hasNativeKeyLock(): boolean {
+    return this.getPitchLockSupport();
+  }
+
+  /**
+   * Creates a SoundTouch-powered ScriptProcessorNode that plays `buffer` with pitch-invariant
+   * time-stretching at the given `tempo` ratio, starting at `startPositionSec`.
+   *
+   * Call `cleanupKeyLockEngine(deckId)` before invoking again or when stopping.
+   * Returns null if soundtouchjs fails to load (fallback to native playback).
+   */
+  public async initKeyLockEngine(
+    deckId: 'A' | 'B',
+    buffer: AudioBuffer,
+    startPositionSec: number,
+    tempo: number,
+  ): Promise<ScriptProcessorNode | null> {
+    this.cleanupKeyLockEngine(deckId);
+
+    let stMod: typeof import('soundtouchjs');
+    try {
+      // Dynamic import keeps soundtouchjs out of the SSR bundle.
+      stMod = await import('soundtouchjs');
+    } catch {
+      console.warn('[AudioEngine] soundtouchjs unavailable; Key Lock falling back to native preservesPitch.');
+      return null;
+    }
+
+    const { SoundTouch, SimpleFilter, WebAudioBufferSource } = stMod;
+
+    const soundTouch = new SoundTouch();
+    soundTouch.tempo = Math.max(0.5, Math.min(2.0, tempo));
+
+    const bufferSource = new WebAudioBufferSource(buffer);
+    const filter = new SimpleFilter(bufferSource, soundTouch);
+    filter.sourcePosition = Math.round(startPositionSec * buffer.sampleRate);
+
+    const BLOCK = 4096;
+    // Use (BLOCK, 2, 2) so onaudioprocess fires reliably in all browsers (mirrors soundtouchjs default).
+    const node = this.context.createScriptProcessor(BLOCK, 2, 2);
+    const samples = new Float32Array(BLOCK * 2);
+    const deck = this.decks[deckId];
+
+    node.onaudioprocess = (e: AudioProcessingEvent) => {
+      const left = e.outputBuffer.getChannelData(0);
+      const right = e.outputBuffer.getChannelData(1);
+      const framesExtracted = filter.extract(samples, BLOCK);
+
+      for (let i = 0; i < framesExtracted; i++) {
+        left[i] = samples[i * 2];
+        right[i] = samples[i * 2 + 1];
+      }
+      // Zero-fill any remaining frames (end-of-buffer).
+      for (let i = framesExtracted; i < BLOCK; i++) {
+        left[i] = 0;
+        right[i] = 0;
+      }
+
+      if (framesExtracted === 0) {
+        // Buffer exhausted — signal end of track.
+        deck.isPlaying = false;
+        deck.onPauseTime?.(0);
+      }
+    };
+
+    this.deckKeyLockEngines[deckId] = { node, filter, soundTouch, buffer };
+    return node;
+  }
+
+  /**
+   * Returns the current playback position (in seconds) of the SoundTouch key-lock engine.
+   * Falls back to 0 if no engine is active.
+   */
+  public getKeyLockPosition(deckId: 'A' | 'B'): number {
+    const kle = this.deckKeyLockEngines[deckId];
+    if (!kle) return 0;
+    return kle.filter.sourcePosition / kle.buffer.sampleRate;
+  }
+
+  /** Disconnects and destroys the SoundTouch engine for the given deck. */
+  public cleanupKeyLockEngine(deckId: 'A' | 'B') {
+    const kle = this.deckKeyLockEngines[deckId];
+    if (!kle) return;
+    try {
+      // Setting onaudioprocess to null stops the processing callback before disconnect.
+      (kle.node as ScriptProcessorNode & { onaudioprocess: null }).onaudioprocess = null;
+      kle.node.disconnect();
+    } catch {
+      // Already disconnected — ignore.
+    }
+    delete this.deckKeyLockEngines[deckId];
   }
 
   private applyPitchLock(source: AudioBufferSourceNode, deckId: 'A' | 'B') {
