@@ -262,6 +262,25 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     lastMessage,
     connect: connectMIDI,
   } = useMIDIManager();
+  const [killA, setKillA] = useState<{ high: boolean; mid: boolean; low: boolean }>({ high: false, mid: false, low: false });
+  const [killB, setKillB] = useState<{ high: boolean; mid: boolean; low: boolean }>({ high: false, mid: false, low: false });
+
+  const toggleKill = useCallback((deckId: 'A' | 'B', band: 'high' | 'mid' | 'low') => {
+    if (deckId === 'A') {
+      setKillA((prev) => {
+        const nextKilled = !prev[band];
+        setEQ('A', band, nextKilled ? -1 : 0);
+        return { ...prev, [band]: nextKilled };
+      });
+    } else {
+      setKillB((prev) => {
+        const nextKilled = !prev[band];
+        setEQ('B', band, nextKilled ? -1 : 0);
+        return { ...prev, [band]: nextKilled };
+      });
+    }
+  }, [setEQ]);
+
   const [cratePrompt, setCratePrompt] = useState(DEFAULT_AI_CRATE_PROMPT);
   const [isMainstage, setIsMainstage] = useState(false);
   const restoreLibraryRef = useRef(false);
@@ -645,11 +664,45 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} sparklineCanvasRef={sparklineAHighRef} />
           <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} sparklineCanvasRef={sparklineAMidRef} />
           <EQKnob label="Low" value={eqA.low} onChange={(val) => setEQ('A', 'low', val)} sparklineCanvasRef={sparklineALowRef} />
+          <div className="flex gap-1 mt-1">
+            {(['high', 'mid', 'low'] as const).map((band) => (
+              <button
+                key={band}
+                type="button"
+                title={`Kill ${band} EQ (Deck A)`}
+                onClick={() => toggleKill('A', band)}
+                className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide border transition-all ${
+                  killA[band]
+                    ? 'bg-studio-crimson border-studio-crimson text-white shadow-[0_0_8px_#FF003C]'
+                    : 'bg-studio-black border-studio-gold/30 text-slate-500 hover:border-studio-crimson/50 hover:text-slate-300'
+                }`}
+              >
+                {band[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
         <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
           <EQKnob label="High" value={eqB.high} onChange={(val) => setEQ('B', 'high', val)} sparklineCanvasRef={sparklineBHighRef} />
           <EQKnob label="Mid" value={eqB.mid} onChange={(val) => setEQ('B', 'mid', val)} sparklineCanvasRef={sparklineBMidRef} />
           <EQKnob label="Low" value={eqB.low} onChange={(val) => setEQ('B', 'low', val)} sparklineCanvasRef={sparklineBLowRef} />
+          <div className="flex gap-1 mt-1">
+            {(['high', 'mid', 'low'] as const).map((band) => (
+              <button
+                key={band}
+                type="button"
+                title={`Kill ${band} EQ (Deck B)`}
+                onClick={() => toggleKill('B', band)}
+                className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wide border transition-all ${
+                  killB[band]
+                    ? 'bg-studio-crimson border-studio-crimson text-white shadow-[0_0_8px_#FF003C]'
+                    : 'bg-studio-black border-studio-gold/30 text-slate-500 hover:border-studio-crimson/50 hover:text-slate-300'
+                }`}
+              >
+                {band[0].toUpperCase()}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
       <div className={compact ? 'flex justify-center gap-3 w-full px-1' : 'flex justify-center gap-4 w-full px-2'}>

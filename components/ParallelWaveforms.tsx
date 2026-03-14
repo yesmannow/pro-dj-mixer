@@ -1,7 +1,8 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, useCallback } from 'react';
 import { useDeckStore } from '@/store/deckStore';
+import { useMixerStore } from '@/store/mixerStore';
 import { useUIStore } from '@/store/uiStore';
 import { AudioEngine } from '@/lib/audioEngine';
 
@@ -657,10 +658,40 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     ? (compact ? 'h-24' : 'h-48 md:h-64 xl:h-80')
     : (compact ? 'h-12' : 'h-24 md:h-32 xl:h-40');
 
+  const handleNeedleDrop = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const centerX = rect.width / 2;
+    const timeOffset = (clickX - centerX) / zoom;
+
+    const stateA = deckARef.current;
+    const stateB = deckBRef.current;
+    const crossfader = useMixerStore.getState().crossfader;
+
+    // Determine active deck: prefer playing deck, fall back to crossfader bias (A at center/left)
+    let activeDeckId: 'A' | 'B';
+    if (stateA.isPlaying && !stateB.isPlaying) {
+      activeDeckId = 'A';
+    } else if (stateB.isPlaying && !stateA.isPlaying) {
+      activeDeckId = 'B';
+    } else {
+      activeDeckId = crossfader <= 0 ? 'A' : 'B';
+    }
+
+    const snap = activeDeckId === 'A' ? stateA : stateB;
+    const targetTime = snap.currentTime + timeOffset;
+    const maxTime = snap.duration > 0 ? snap.duration : Infinity;
+    const newTime = Math.max(0, Math.min(maxTime, targetTime));
+    useDeckStore.getState().setCurrentTime(activeDeckId, newTime);
+  }, [zoom]);
+
   return (
     <div
       ref={containerRef}
       className={`${heightClass} w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative transition-all duration-300`}
+      onPointerDown={handleNeedleDrop}
     >
       <canvas
         ref={canvasRef}
