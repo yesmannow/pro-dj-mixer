@@ -451,8 +451,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const timeRemaining = track ? formatTime(duration - currentTime) : '00:00.00';
 
   const handleLoadTrack = useCallback(() => {
-    const isCompactViewport = window.matchMedia('(orientation: landscape) and (max-height: 540px), (max-width: 767px)').matches;
-    if (isCompactViewport) {
+    if (compact) {
       useUIStore.getState().setActiveTab('LIBRARY');
     } else {
       const state = useUIStore.getState();
@@ -460,7 +459,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
         state.toggleLibrary();
       }
     }
-  }, []);
+  }, [compact]);
 
   const handleOverviewScrub = useCallback(
     (targetTime: number) => {
