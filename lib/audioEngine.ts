@@ -172,7 +172,7 @@ export class AudioEngine {
       this.context = new AudioContextCtor();
     }
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.7;
+    this.masterGain.gain.value = 0.5;
     this.cueGain = this.context.createGain();
     this.cueGain.gain.value = 1;
     this.cueMonitorGain = this.context.createGain();

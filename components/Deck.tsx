@@ -139,6 +139,8 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const { setCue, clearCue, loadCues, getCues, autoGenerateCues } = useTrackCueStore();
 
   const [currentBpm, setCurrentBpm] = useState(track ? Number(track.bpm) : 120);
+  const [isEditingBpm, setIsEditingBpm] = useState(false);
+  const [bpmInputValue, setBpmInputValue] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
@@ -622,7 +624,40 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </h3>
           <div className={compact ? 'flex items-center gap-1.5' : 'flex items-center gap-2'}>
             <p className={compact ? 'text-[11px] text-slate-300' : 'text-slate-300 text-[length:var(--step-0)]'}>
-              {artist} • <span className="oled-display font-bold text-slate-100 tabular-nums">{bpm}</span> BPM • <span className="oled-display font-bold text-slate-100">{keySignature}</span>
+              {artist} • {isEditingBpm ? (
+                <input
+                  type="number"
+                  className="oled-display font-bold text-slate-100 tabular-nums bg-transparent border-b border-studio-gold/60 outline-none w-16 text-center"
+                  value={bpmInputValue}
+                  autoFocus
+                  onChange={(e) => setBpmInputValue(e.target.value)}
+                  onBlur={() => {
+                    const newBpm = parseFloat(bpmInputValue);
+                    if (track && Number.isFinite(newBpm) && newBpm > 0) {
+                      const originalBpm = Number(track.bpm);
+                      const newPitchPercent = ((newBpm / originalBpm) - 1) * 100;
+                      setPitch(deckId, newPitchPercent);
+                      setCurrentBpm(newBpm);
+                    }
+                    setIsEditingBpm(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    if (e.key === 'Escape') setIsEditingBpm(false);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              ) : (
+                <span
+                  className="oled-display font-bold text-slate-100 tabular-nums cursor-pointer hover:text-studio-gold transition-colors"
+                  onDoubleClick={() => {
+                    if (!track) return;
+                    setBpmInputValue(String(bpm));
+                    setIsEditingBpm(true);
+                  }}
+                  title="Double-click to edit BPM"
+                >{bpm}</span>
+              )} BPM • <span className="oled-display font-bold text-slate-100">{keySignature}</span>
             </p>
             <button
               onClick={handleTap}
