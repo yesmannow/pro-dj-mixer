@@ -701,7 +701,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
             compact={compact}
             onScrubTo={handleOverviewScrub}
           />
-          <div className="crt-scanline-overlay rounded" />
         </div>
       )}
       <div className={compact ? 'flex items-start justify-between gap-3 text-slate-100' : 'flex items-center justify-between text-slate-100'}>

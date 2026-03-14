@@ -18,7 +18,6 @@ import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ViewControls } from '@/components/ViewControls';
-import { CRTTerminal } from '@/components/ui/CRTTerminal';
 
 type CompactPanel = 'deckA' | 'mixer' | 'deckB' | 'library';
 const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
@@ -114,8 +113,7 @@ export default function Home() {
   };
 
   return (
-    <CRTTerminal>
-      <div className={isCompactViewport ? 'h-screen overflow-hidden flex flex-col bg-studio-black relative' : 'min-h-screen overflow-x-hidden flex flex-col bg-studio-black relative'}>
+    <div className={isCompactViewport ? 'h-screen overflow-hidden flex flex-col bg-studio-black relative' : 'min-h-screen overflow-x-hidden flex flex-col bg-studio-black relative'}>
         <main className="flex-1 flex flex-col relative min-h-0">
           <ViewControls compact={isCompactViewport} onOpenSettings={() => setIsSettingsOpen(true)} />
           <div className={isCompactViewport ? 'flex-1 flex flex-col gap-3 px-3 pb-3 pt-14 overflow-hidden min-w-0' : 'flex-1 flex flex-col gap-4 p-4 overflow-hidden min-w-0'}>
@@ -248,6 +246,5 @@ export default function Home() {
         <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
         <AudioStats />
       </div>
-    </CRTTerminal>
   );
 }
