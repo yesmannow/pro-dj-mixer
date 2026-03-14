@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { PanelTop, PanelBottom, Maximize, Minimize } from 'lucide-react';
+import { PanelTop, FolderOpen, Maximize, Minimize } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useUIStore } from '@/store/uiStore';
 import { useMediaRecorder } from '@/hooks/useMediaRecorder';
@@ -15,15 +15,14 @@ function formatElapsed(seconds: number): string {
 export function ViewControls({ compact = false }: Readonly<{ compact?: boolean }>) {
   const {
     isWaveformVisible,
-    isLibraryVisible,
     isDeckAVisible,
     isMixerVisible,
     isDeckBVisible,
     toggleWaveform,
-    toggleLibrary,
     toggleDeckA,
     toggleMixer,
     toggleDeckB,
+    setIsLibraryOverlayOpen,
   } = useUIStore();
 
   const { isRecording, elapsedSeconds, startRecording, stopRecording } = useMediaRecorder();
@@ -113,16 +112,12 @@ export function ViewControls({ compact = false }: Readonly<{ compact?: boolean }
       <div className="w-px h-4 bg-slate-700 mx-1"></div>
 
       <button
-        onClick={toggleLibrary}
-        className={clsx(
-          "p-1.5 rounded-full transition-all duration-300",
-          isLibraryVisible
-            ? "text-accent neon-text-glow bg-accent/10"
-            : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-        )}
-        title="Toggle Library"
+        onClick={() => setIsLibraryOverlayOpen(true)}
+        className="flex items-center gap-1.5 rounded-full transition-all duration-300 px-2.5 py-1 text-[11px] font-bold text-studio-gold hover:text-studio-gold/80 hover:bg-studio-gold/10 border border-studio-gold/30 hover:border-studio-gold/60"
+        title="Browse Vault"
       >
-        <PanelBottom className="w-4 h-4" />
+        <FolderOpen className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline tracking-widest">VAULT</span>
       </button>
 
       <div className="w-px h-4 bg-slate-700 mx-1"></div>

@@ -62,10 +62,10 @@ export function LibraryOverlay({ isOpen, onClose }: LibraryOverlayProps) {
           <div className="flex items-center gap-3">
             {/* Deck load hint badges */}
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded text-[10px] tracking-widest uppercase text-studio-gold/60 border border-studio-gold/20">
-              Click → Deck A
+              [A] → Deck A
             </span>
             <span className="hidden sm:flex items-center gap-1 px-2 py-0.5 rounded text-[10px] tracking-widest uppercase text-studio-gold/60 border border-studio-gold/20">
-              Shift+Click → Deck B
+              [B] → Deck B
             </span>
             <button
               onClick={onClose}
