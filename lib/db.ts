@@ -22,7 +22,7 @@ export interface CrateTrack {
 
 export interface CuePoint {
   id?: number;
-  trackId: number;
+  trackId?: number;
   slot: number; // 1-8
   time: number; // seconds
   type: 'hot' | 'memory';

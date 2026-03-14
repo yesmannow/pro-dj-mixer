@@ -18,6 +18,8 @@ export interface DeckState {
   volume: number;
   pitchPercent: number;
   sync: boolean;
+  keyLock: boolean;
+  keyLockSupported: boolean;
   stems: StemState;
 }
 
@@ -29,6 +31,7 @@ interface DeckStore {
   setVolume: (deckId: 'A' | 'B', volume: number) => void;
   setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
   toggleSync: (deckId: 'A' | 'B') => void;
+  toggleKeyLock: (deckId: 'A' | 'B') => void;
   setCurrentTime: (deckId: 'A' | 'B', time: number) => void;
   toggleStem: (deckId: 'A' | 'B', stemType: keyof StemState) => void;
 }
@@ -43,6 +46,8 @@ const initialDeckState: DeckState = {
   volume: 1,
   pitchPercent: 0,
   sync: false,
+  keyLock: false,
+  keyLockSupported: true,
   stems: { vocals: true, drums: true, inst: true },
 };
 
@@ -158,6 +163,22 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
         [localDeckKey]: { ...localDeck, sync: true, pitchPercent }
       };
     });
+  },
+
+  toggleKeyLock: (deckId: 'A' | 'B') => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    const { enabled, supported } =
+      typeof window !== 'undefined'
+        ? AudioEngine.getInstance().toggleKeyLock(deckId)
+        : { enabled: !get()[deckKey].keyLock, supported: true };
+
+    set((state) => ({
+      [deckKey]: {
+        ...state[deckKey],
+        keyLock: enabled,
+        keyLockSupported: supported,
+      },
+    }));
   },
 
   toggleStem: (deckId: 'A' | 'B', stemType: keyof StemState) => {

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Deck } from '@/components/Deck';
+import { AudioStats } from '@/components/AudioStats';
 import { Mixer } from '@/components/Mixer';
 import { Library } from '@/components/Library';
 import { ParallelWaveforms } from '@/components/ParallelWaveforms';
@@ -245,6 +246,7 @@ export default function Home() {
         </main>
         {isAddMusicModalOpen && <AddMusicModal />}
         <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+        <AudioStats />
       </div>
     </CRTTerminal>
   );

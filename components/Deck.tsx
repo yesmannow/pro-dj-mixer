@@ -150,8 +150,11 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const loadTrack = useDeckStore((state) => state.loadTrack);
   const setPitch = useDeckStore((state) => state.setPitch);
   const toggleSync = useDeckStore((state) => state.toggleSync);
+  const toggleKeyLock = useDeckStore((state) => state.toggleKeyLock);
   const pitchPercent = useDeckStore((state) => (deckId === 'A' ? state.deckA.pitchPercent : state.deckB.pitchPercent));
   const sync = useDeckStore((state) => (deckId === 'A' ? state.deckA.sync : state.deckB.sync));
+  const keyLock = useDeckStore((state) => (deckId === 'A' ? state.deckA.keyLock : state.deckB.keyLock));
+  const keyLockSupported = useDeckStore((state) => (deckId === 'A' ? state.deckA.keyLockSupported : state.deckB.keyLockSupported));
   const stems = useDeckStore((state) => (deckId === 'A' ? state.deckA.stems : state.deckB.stems));
   const toggleStem = useDeckStore((state) => state.toggleStem);
   const { tracks } = useLibraryStore();
@@ -164,18 +167,17 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
-  const [keyLock, setKeyLock] = useState(false);
   const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
   const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
   const [deckTheme, setDeckTheme] = useState<DeckTheme>(DEFAULT_DECK_THEME[deckId]);
 
-  const cuePoints = useMemo(() => (track?.id ? getCues(track.id) : []), [getCues, track]);
+  const cuePoints = useMemo(() => (track ? getCues(track) : []), [getCues, track]);
 
   useEffect(() => {
-    if (track?.id) {
-      loadCues(track.id);
+    if (track) {
+      void loadCues(track);
     }
-  }, [track?.id, loadCues]);
+  }, [track, loadCues]);
 
   useEffect(() => {
     void AudioEngine.getInstance().createDeckFxBus(deckId);
@@ -211,27 +213,27 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, [splineEnabled]);
 
   const startStutterFromSlot = useCallback(async (slot: number) => {
-    if (!track?.id) return;
+    if (!track) return;
     const existing = cuePoints.find((c) => c.slot === slot);
     const cueTime = existing ? existing.time : currentTime;
 
     if (!existing) {
-      await setCue(track.id, slot, cueTime, 'hot');
+      await setCue(track, slot, cueTime, 'hot');
     }
 
     AudioEngine.getInstance().startStutter(deckId, cueTime);
   }, [track, cuePoints, currentTime, deckId, setCue]);
 
   const stopStutterFromSlot = useCallback((slot: number) => {
-    if (!track?.id) return;
+    if (!track) return;
     const existing = cuePoints.find((c) => c.slot === slot);
     const cueTime = existing ? existing.time : currentTime;
     AudioEngine.getInstance().stopStutter(deckId, cueTime);
   }, [track, cuePoints, currentTime, deckId]);
 
   const clearCueSlot = useCallback(async (slot: number) => {
-    if (!track?.id) return;
-    await clearCue(track.id, slot);
+    if (!track) return;
+    await clearCue(track, slot);
   }, [track, clearCue]);
 
   const { shiftHeld, pressedSlots } = usePerformanceKeys({
@@ -251,7 +253,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const jogWheelRef = useRef<HTMLDivElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
-  const pitchPercentRef = useRef(pitchPercent);
   const lastMoveTimeRef = useRef<number>(0);
   const lastDeltaRef = useRef<number>(0);
   const platterNodeRef = useRef<any>(null);
@@ -506,24 +507,21 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, [currentTime]);
 
   useEffect(() => {
-    pitchPercentRef.current = pitchPercent;
-  }, [pitchPercent]);
-
-  useEffect(() => {
     let raf: number;
     const tick = () => {
-      const combinedTime = currentTimeRef.current + scratchOffsetRef.current;
-      const playbackRate = 1 + pitchPercentRef.current / 100;
-      // PLATTER_REVOLUTION_SECONDS = seconds per revolution at 1× speed; divide by playbackRate for pitch-accurate spin
-      const baseRadians = -((combinedTime) / (PLATTER_REVOLUTION_SECONDS / Math.max(0.01, playbackRate))) * (Math.PI * 2);
-      const jitter = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.002 : 0;
+      // currentTimeRef already advances using the engine's real, smoothed playbackRate,
+      // so platter spin should derive from transport time only and add scratch as angle.
+      const audioDegrees = (currentTimeRef.current / PLATTER_REVOLUTION_SECONDS) * 360;
+      const jitterDegrees = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.12 : 0;
+      const totalDegrees = audioDegrees + scratchOffsetRef.current + jitterDegrees;
+      const baseRadians = -(totalDegrees * (Math.PI / 180));
       const node = platterNodeRef.current;
       if (node) {
-        node.rotation.y = baseRadians + jitter;
+        node.rotation.y = baseRadians;
       }
       const fallback = fallbackPlatterRef.current;
       if (fallback) {
-        fallback.style.transform = `rotate(${((-baseRadians - jitter) * 180) / Math.PI}deg)`;
+        fallback.style.transform = `rotate(${totalDegrees}deg)`;
       }
       raf = requestAnimationFrame(tick);
     };
@@ -802,25 +800,35 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
              </MagneticButton>
              {/* Key Lock Toggle */}
              <MagneticButton
-               strength={40}
-               onClick={() => setKeyLock((prev) => !prev)}
-               className={clsx(
-                 compact
-                   ? 'shrink-0 h-9 w-14 rounded-lg flex flex-col items-center justify-center text-[10px] font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner'
-                   : 'shrink-0 w-20 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner',
-               )}
-               style={{
-                 borderColor: keyLock ? deckTheme.primary : `rgba(${deckTheme.primaryRgb}, 0.3)`,
+                strength={40}
+                onClick={() => toggleKeyLock(deckId)}
+                disabled={!track}
+                className={clsx(
+                  compact
+                    ? 'shrink-0 h-9 w-14 rounded-lg flex flex-col items-center justify-center text-[10px] font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner disabled:opacity-50 disabled:cursor-not-allowed'
+                    : 'shrink-0 w-20 h-12 rounded-lg flex flex-col items-center justify-center font-bold transition-all active:border-b-0 active:translate-y-1 touch-none border-b-4 shadow-inner disabled:opacity-50 disabled:cursor-not-allowed',
+                )}
+                style={{
+                  borderColor: keyLock ? deckTheme.primary : `rgba(${deckTheme.primaryRgb}, 0.3)`,
                  color: keyLock ? deckTheme.primary : '#64748b',
                  background: keyLock ? `rgba(${deckTheme.primaryRgb}, 0.12)` : undefined,
                  boxShadow: keyLock ? `0 0 10px rgba(${deckTheme.primaryRgb}, 0.3)` : undefined,
                }}
+              >
+                <span className="text-[9px] leading-none">{keyLock ? 'KEY' : 'VINYL'}</span>
+                <span className="text-[7px] leading-none mt-0.5 opacity-60">{keyLock ? 'LOCK' : 'MODE'}</span>
+              </MagneticButton>
+           </div>
+           {keyLock && !keyLockSupported && (
+             <div
+               role="alert"
+               aria-live="polite"
+               className="mt-2 text-[10px] uppercase tracking-[0.2em] text-studio-crimson oled-display"
              >
-               <span className="text-[9px] leading-none">{keyLock ? 'KEY' : 'VINYL'}</span>
-               <span className="text-[7px] leading-none mt-0.5 opacity-60">{keyLock ? 'LOCK' : 'MODE'}</span>
-             </MagneticButton>
-          </div>
-        </div>
+               Key lock not supported: pitch changes with tempo.
+             </div>
+           )}
+         </div>
 
         {/* Pitch / Tempo Fader */}
         <div className={compact ? '' : 'flex justify-center lg:pt-3'}>

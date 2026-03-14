@@ -112,7 +112,7 @@ export function OverviewWaveform({
     ctx.fillRect(0, 0, playheadWidth, size.height);
 
     // 2. Draw Cue Markers
-    const cues = useTrackCueStore.getState().getCues(track.id);
+    const cues = useTrackCueStore.getState().getCues(track);
     cues.forEach(cue => {
       const cueRatio = cue.time / duration;
       const x = cueRatio * size.width;
@@ -138,7 +138,7 @@ export function OverviewWaveform({
       ctx.textAlign = 'center';
       ctx.fillText(cue.slot.toString(), x, 15);
     });
-  }, [currentTime, duration, size.width, size.height, track?.id]);
+  }, [currentTime, duration, size.width, size.height, track]);
 
   const handlePointer = useCallback(
     (clientX: number) => {
