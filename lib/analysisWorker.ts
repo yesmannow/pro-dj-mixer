@@ -148,7 +148,10 @@ ctx.onmessage = async (event: MessageEvent<AnalysisRequest | DecodeRequest>) => 
     // Handle decode requests: decode audio in worker via OfflineAudioContext,
     // then immediately run analysis on the decoded data.
     if ('type' in request && request.type === 'decode') {
-      const offlineCtx = new OfflineAudioContext(1, 1, request.sampleRate || 44100);
+      const sampleRate = request.sampleRate || 44100;
+      // Estimate length from ArrayBuffer size (assume 16-bit stereo as worst case for sizing)
+      const estimatedLength = Math.max(sampleRate, Math.ceil(request.arrayBuffer.byteLength / 2));
+      const offlineCtx = new OfflineAudioContext(1, estimatedLength, sampleRate);
       const audioBuffer = await offlineCtx.decodeAudioData(request.arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
       const analysisResponse = handleAnalyze({

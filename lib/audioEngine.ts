@@ -443,7 +443,7 @@ export class AudioEngine {
       lowLP1, lowLP2, midHP1, midHP2, midLP1, midLP2, highHP1, highHP2,
     };
 
-    // Wire: input → [low crossover → drums gain] + [band crossover → vocals gain] + [high crossover → inst gain]
+    // Wire: input → [low crossover → drums gain] + [mid crossover → vocals gain] + [high crossover → inst gain]
     input.connect(lowLP1);
     lowLP1.connect(lowLP2);
     lowLP2.connect(drumsGain);

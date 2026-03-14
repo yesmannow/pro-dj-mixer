@@ -32,7 +32,7 @@ export function PitchFader({
   const displayedPitch = pitchPercent + temporaryPitch;
   const isAtZero = Math.abs(pitchPercent) < 0.001;
   const markerClass = isAtZero ? 'bg-lime-400 shadow-[0_0_8px_#22c55e]' : 'bg-slate-700';
-  const lastTapRef = useRef(0);
+  const lastTapRef = useRef<number>(0);
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const raw = Number.parseFloat(event.target.value) - temporaryPitch;
