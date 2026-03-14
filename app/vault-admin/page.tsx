@@ -8,6 +8,15 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 
 type UploadPhase = 'idle' | 'signing' | 'uploading' | 'syncing' | 'done' | 'error';
 
+interface VaultTrack {
+  title: string;
+  artist: string;
+  bpm: string;
+  key: string;
+  audioUrl: string;
+  createdAt: number;
+}
+
 interface UploadStatus {
   phase: UploadPhase;
   message: string;
@@ -144,6 +153,11 @@ export default function VaultAdminPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  // ── Vault tracks state ────────────────────────────────────────────────
+  const [vaultTracks, setVaultTracks] = useState<VaultTrack[]>([]);
+  const [tracksLoading, setTracksLoading] = useState(false);
+  const [deletingUrl, setDeletingUrl] = useState<string | null>(null);
 
   // ── Auth handler ───────────────────────────────────────────────────────
   const handleUnlock = (e: React.FormEvent) => {
@@ -376,6 +390,8 @@ export default function VaultAdminPage() {
       setTrackBpm('');
       setTrackKey('');
       clearFileSelection();
+      // Refresh track listing after successful upload
+      fetchVaultTracks();
     } catch (err) {
       setStatus({
         phase: 'error',
@@ -399,6 +415,58 @@ export default function VaultAdminPage() {
     setTrackKey('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
+
+  // ── Fetch vault tracks ────────────────────────────────────────────────
+  const fetchVaultTracks = useCallback(async () => {
+    setTracksLoading(true);
+    try {
+      const res = await fetch(`${R2_PUBLIC_ROOT}/library.json`, { cache: 'no-store' });
+      if (!res.ok) { setVaultTracks([]); return; }
+      const data: unknown = await res.json();
+      if (Array.isArray(data)) {
+        setVaultTracks(data as VaultTrack[]);
+      }
+    } catch {
+      setVaultTracks([]);
+    } finally {
+      setTracksLoading(false);
+    }
+  }, []);
+
+  // Load tracks when unlocked
+  useEffect(() => {
+    if (isUnlocked) fetchVaultTracks();
+  }, [isUnlocked, fetchVaultTracks]);
+
+  // ── Delete track handler ──────────────────────────────────────────────
+  const handleDeleteTrack = useCallback(async (audioUrl: string) => {
+    if (deletingUrl) return; // prevent concurrent deletes
+    setDeletingUrl(audioUrl);
+    try {
+      const res = await fetch('/api/vault/delete', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-syndicate-key': sessionKey,
+        },
+        body: JSON.stringify({ audioUrl }),
+      });
+
+      if (res.status === 401) {
+        handleLock();
+        return;
+      }
+
+      const data = (await res.json()) as { success?: boolean; error?: string };
+      if (res.ok && data.success) {
+        setVaultTracks((prev) => prev.filter((t) => t.audioUrl !== audioUrl));
+      }
+    } catch {
+      // Silently fail — track remains in list
+    } finally {
+      setDeletingUrl(null);
+    }
+  }, [deletingUrl, sessionKey, handleLock]);
 
   // ── Phase-derived UI values ─────────────────────────────────────────────
   const isBusy = status.phase === 'signing' || status.phase === 'uploading' || status.phase === 'syncing';
@@ -1005,6 +1073,106 @@ export default function VaultAdminPage() {
               <span style={{ color: 'rgba(255,215,0,0.35)' }}>LIBRARY</span> panel on
               next session load.
             </p>
+          </div>
+
+          {/* ── Manage Tracks panel ─────────────────────────────────────── */}
+          <div
+            className="rounded-xl p-4"
+            style={{
+              background: 'rgba(0,0,0,0.25)',
+              border: '1px solid rgba(255,215,0,0.1)',
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <p
+                className="oled-display text-[10px] tracking-[0.25em] uppercase font-bold"
+                style={{ color: 'rgba(255,215,0,0.4)' }}
+              >
+                ▸ MANAGE TRACKS ({vaultTracks.length})
+              </p>
+              <button
+                type="button"
+                onClick={fetchVaultTracks}
+                disabled={tracksLoading}
+                className="oled-display text-[9px] tracking-[0.15em] uppercase px-2 py-1 rounded transition-all duration-150 active:scale-95 disabled:opacity-40"
+                style={{
+                  background: 'rgba(255,215,0,0.05)',
+                  border: '1px solid rgba(255,215,0,0.15)',
+                  color: 'rgba(255,215,0,0.5)',
+                  cursor: tracksLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {tracksLoading ? 'LOADING...' : 'REFRESH'}
+              </button>
+            </div>
+
+            {tracksLoading && vaultTracks.length === 0 ? (
+              <p
+                className="oled-display text-[10px] tracking-[0.1em] py-4 text-center animate-pulse"
+                style={{ color: 'rgba(255,215,0,0.3)' }}
+              >
+                LOADING VAULT MANIFEST...
+              </p>
+            ) : vaultTracks.length === 0 ? (
+              <p
+                className="oled-display text-[10px] tracking-[0.1em] py-4 text-center"
+                style={{ color: 'rgba(255,255,255,0.2)' }}
+              >
+                NO TRACKS IN VAULT
+              </p>
+            ) : (
+              <div
+                className="space-y-1.5 overflow-y-auto"
+                style={{ maxHeight: '280px' }}
+              >
+                {vaultTracks.map((track) => (
+                  <div
+                    key={track.audioUrl}
+                    className="flex items-center justify-between rounded-lg px-3 py-2 group transition-all duration-150"
+                    style={{
+                      background: deletingUrl === track.audioUrl
+                        ? 'rgba(255,0,60,0.08)'
+                        : 'rgba(255,255,255,0.02)',
+                      border: deletingUrl === track.audioUrl
+                        ? '1px solid rgba(255,0,60,0.2)'
+                        : '1px solid rgba(255,255,255,0.04)',
+                    }}
+                  >
+                    <div className="min-w-0 flex-1 mr-3">
+                      <p
+                        className="oled-display text-xs truncate"
+                        style={{ color: 'rgba(255,215,0,0.7)', letterSpacing: '0.05em' }}
+                      >
+                        {track.title || 'Untitled'}
+                      </p>
+                      {track.artist && (
+                        <p
+                          className="oled-display text-[10px] truncate"
+                          style={{ color: 'rgba(255,255,255,0.25)', letterSpacing: '0.05em' }}
+                        >
+                          {track.artist}
+                        </p>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTrack(track.audioUrl)}
+                      disabled={deletingUrl !== null}
+                      className="oled-display text-[9px] tracking-[0.15em] uppercase px-2.5 py-1 rounded transition-all duration-150 active:scale-95 disabled:opacity-30 disabled:cursor-not-allowed opacity-60 hover:opacity-100"
+                      style={{
+                        background: 'rgba(255,0,60,0.08)',
+                        border: '1px solid rgba(255,0,60,0.3)',
+                        color: 'var(--color-studio-crimson)',
+                        cursor: deletingUrl !== null ? 'not-allowed' : 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {deletingUrl === track.audioUrl ? 'DELETING...' : 'DELETE'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* ── Chassis detail row ──────────────────────────────────────── */}
