@@ -15,6 +15,7 @@ export interface AICrateCriteria {
   bpmRange: [number, number] | null;
   key: string | null;
   compatibleKeys: string[];
+  harmonicRange: string[];
   keywords: string[];
   vaultOnly: boolean;
 }
@@ -43,6 +44,7 @@ export const parseAICratePrompt = (prompt: string, vaultOnly = true): AICrateCri
       ? Number(bpmTargetMatch[1])
       : null;
   const key = keyMatch ? keyMatch[0].toUpperCase() : null;
+  const harmonicRange = key ? Array.from(new Set([key, ...getCompatibleKeys(key)])) : [];
   const keywords = tokenize(prompt).filter((token) => {
     if (STOP_WORDS.has(token) || token === 'bpm') return false;
     if (/^\d+$/.test(token)) return false;
@@ -55,6 +57,7 @@ export const parseAICratePrompt = (prompt: string, vaultOnly = true): AICrateCri
     bpmRange,
     key,
     compatibleKeys: key ? getCompatibleKeys(key) : [],
+    harmonicRange,
     keywords,
     vaultOnly,
   };
@@ -102,9 +105,9 @@ export const buildAICrate = (
         if (normalizedKey === criteria.key) {
           score += 20;
           reasons.push(`key ${normalizedKey}`);
-        } else if (criteria.compatibleKeys.includes(normalizedKey)) {
+        } else if (criteria.harmonicRange.includes(normalizedKey)) {
           score += 12;
-          reasons.push(`harmonic with ${criteria.key}`);
+          reasons.push(`Rekordbox harmonic range (${normalizedKey})`);
         } else if (track.key !== '--') {
           score -= 10;
         }

@@ -26,6 +26,10 @@ const SPARKLINE_HISTORY_SIZE = 8;
 const SPARKLINE_HIGH_ENERGY = 0.6;
 const SPARKLINE_MID_ENERGY = 0.3;
 const DEFAULT_AI_CRATE_PROMPT = 'Show me tracks for a 124 BPM house set.';
+const DEFAULT_RECORDING_PROFILE = {
+  sampleRate: 48000,
+  bitDepth: 24,
+};
 
 const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -242,12 +246,23 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       toggleLibrary: state.toggleLibrary,
     }))
   );
-  const { isSupported: isMIDISupported, isConnected: isMIDIConnected, devices: midiDevices, lastMessage } = useMIDIManager();
+  const {
+    isSupported: isMIDISupported,
+    isConnecting: isMIDIConnecting,
+    isConnected: isMIDIConnected,
+    devices: midiDevices,
+    lastMessage,
+    connect: connectMIDI,
+  } = useMIDIManager();
   const [cratePrompt, setCratePrompt] = useState(DEFAULT_AI_CRATE_PROMPT);
   const [isMainstage, setIsMainstage] = useState(false);
   const restoreLibraryRef = useRef(false);
   const aiCrate = useMemo(() => buildAICrate(libraryTracks, cratePrompt, { limit: compact ? 3 : 5, vaultOnly: true }), [compact, cratePrompt, libraryTracks]);
-  const recordingProfile = useMemo(() => AudioEngine.getInstance().getRecordingProfile(), []);
+  const recordingProfile = useMemo(() => (
+    typeof window === 'undefined'
+      ? DEFAULT_RECORDING_PROFILE
+      : AudioEngine.getInstance().getRecordingProfile()
+  ), []);
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);
@@ -570,9 +585,20 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         </div>
         <div className={compact ? 'mt-2 flex flex-col gap-2' : 'mt-3 flex flex-col gap-3'}>
           <div className="flex flex-wrap items-center gap-2 text-[9px] uppercase tracking-[0.2em] text-slate-400">
-            <span className={isMIDIConnected ? 'rounded-full border border-studio-gold/40 bg-studio-gold/10 px-2 py-1 text-studio-gold' : 'rounded-full border border-white/10 bg-white/5 px-2 py-1'}>
-              {isMIDISupported ? (isMIDIConnected ? `MIDI ${midiDevices.length} Ready` : 'MIDI Standby') : 'MIDI Unavailable'}
-            </span>
+            {isMIDISupported ? (
+              <button
+                type="button"
+                onClick={() => void connectMIDI()}
+                disabled={isMIDIConnecting}
+                className={isMIDIConnected
+                  ? 'rounded-full border border-studio-gold/40 bg-studio-gold/10 px-2 py-1 text-studio-gold'
+                  : 'rounded-full border border-white/10 bg-white/5 px-2 py-1 text-slate-300 transition hover:border-studio-gold/30 hover:text-studio-gold disabled:opacity-60'}
+              >
+                {isMIDIConnecting ? 'Connecting MIDI' : isMIDIConnected ? `Reconnect MIDI (${midiDevices.length})` : 'Connect MIDI'}
+              </button>
+            ) : (
+              <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">MIDI Unavailable</span>
+            )}
             {lastMessage ? <span className="oled-display text-[9px] text-slate-300">{lastMessage}</span> : null}
           </div>
           <div className="grid gap-2">
@@ -589,7 +615,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
               </div>
             )) : (
               <div className="rounded-lg border border-dashed border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">
-                No vault matches yet. Try a BPM, Camelot key, or artist prompt.
+                No vault matches yet. Try a BPM, key like 8A, or artist prompt.
               </div>
             )}
           </div>
