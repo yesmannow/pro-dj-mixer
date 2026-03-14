@@ -54,13 +54,11 @@ interface ManifestEntry {
  * normalises them into the same shape as PIKO_VAULT_TRACKS so they can flow
  * through the existing loadPikoVault pipeline.
  *
- * Falls back to an empty array if NEXT_PUBLIC_R2_PUBLIC_URL is unset, the
- * file doesn't exist yet, or the network request fails for any reason.
+ * Falls back to an empty array if the file doesn't exist yet or the
+ * network request fails for any reason.
  */
 const fetchManifestTracks = async (): Promise<{ id: string; title: string; artist: string; url: string }[]> => {
-  const r2PublicUrl = process.env.NEXT_PUBLIC_R2_PUBLIC_URL;
-  if (!r2PublicUrl) return [];
-
+  const r2PublicUrl = 'pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev';
   try {
     const res = await fetch(`https://${r2PublicUrl}/library.json`, { cache: 'no-store' });
     if (!res.ok) return [];
