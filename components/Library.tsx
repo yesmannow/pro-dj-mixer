@@ -221,9 +221,13 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
   }, [holdVaultHud, isVaultSyncActive, vaultReadyCount, vaultTotalCount]);
 
   useEffect(() => {
-    const handleSyncFeedback = () => {
+    const handleSyncFeedback = (event: Event) => {
+      const syncEvent = event as CustomEvent<{ type?: 'SESSION_STATE' | 'NEW_CUE' | 'LIBRARY_REFRESH' }>;
       setIsSyncFlashing(true);
-      window.setTimeout(() => setIsSyncFlashing(false), 300);
+      if (syncEvent.detail?.type === 'NEW_CUE') {
+        toast('B2B hot cue synced');
+      }
+      window.setTimeout(() => setIsSyncFlashing(false), 200);
     };
 
     window.addEventListener('pro-dj-sync-feedback', handleSyncFeedback as EventListener);

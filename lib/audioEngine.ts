@@ -127,7 +127,6 @@ export class AudioEngine {
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
-  private static readonly NEURAL_FADE_CURVE_EXPONENT = 0.72;
   private static readonly TARGET_RECORDING_SAMPLE_RATE = 48000;
   private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
 
@@ -174,7 +173,6 @@ export class AudioEngine {
     this.bunkerDryGain.gain.value = 0.8;
 
     // Master routing: masterGain -> analyser -> (dry + bunker) -> limiter -> destination
-    this.remixBus.connect(this.masterGain);
     this.masterGain.connect(this.masterAnalyser);
     this.masterAnalyser.connect(this.bunkerDryGain);
     this.masterAnalyser.connect(this.bunkerPreDelay);
@@ -183,6 +181,9 @@ export class AudioEngine {
 
     this.bunkerDryGain.connect(this.limiter);
     this.bunkerWetGain.connect(this.limiter);
+    // Remix bus is intentionally post-master-FX but pre-limiter so captured loops bypass deck/master FX
+    // coloration while still landing inside the final safety stage.
+    this.remixBus.connect(this.limiter);
     this.limiter.connect(this.context.destination);
 
     // Recording tap: connect the final post-limiter signal to the MediaStreamDestination
@@ -884,9 +885,8 @@ export class AudioEngine {
     }
 
     if (curve === 'neural') {
-      const softened = 0.5 - 0.5 * Math.cos(x * Math.PI);
-      const gainA = Math.pow(1 - softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
-      const gainB = Math.pow(softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
+      const gainA = Math.sqrt(1 - x);
+      const gainB = Math.sqrt(x);
       return { gainA, gainB };
     }
 

@@ -316,6 +316,10 @@ export const ensureSessionSync = () => {
     emitSyncFeedback(message.type);
 
     if (message.type === 'NEW_CUE') {
+      console.log('[B2B Sync] Remote hot cue update received', {
+        trackHash: message.trackHash,
+        slot: message.cueData.slot,
+      });
       applyRemoteCue(message.trackHash, message.cueData);
       return;
     }
