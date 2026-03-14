@@ -6,7 +6,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 // Types
 // ---------------------------------------------------------------------------
 
-type UploadPhase = 'idle' | 'signing' | 'uploading' | 'done' | 'error';
+type UploadPhase = 'idle' | 'signing' | 'uploading' | 'syncing' | 'done' | 'error';
 
 interface UploadStatus {
   phase: UploadPhase;
@@ -43,6 +43,8 @@ const ACCEPTED_MIME_TYPES = [
 const ACCEPTED_EXTENSIONS = '.mp3,.wav,.flac,.ogg,.aac,.aiff';
 
 const R2_PUBLIC_BASE = 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev/audio';
+// Bucket-level public URL (no key prefix) — used to build audioUrl from a key.
+const R2_PUBLIC_ROOT = 'https://pub-9d6c022e6cbf422ea4fcac0a116cbfce.r2.dev';
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -69,9 +71,12 @@ function getFileContentType(file: File): string {
   return (ext && map[ext]) || 'audio/mpeg';
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+/** Derive a display title from a filename by stripping the extension. */
+function titleFromFilename(filename: string): string {
+  return filename.replace(/\.[^/.]+$/, '').replace(/_/g, ' ');
+}
+
+
 
 /** Blinking cursor for OLED displays. */
 function OledCursor() {
@@ -131,6 +136,12 @@ export default function VaultAdminPage() {
     uploadedKey: '',
   });
 
+  // ── Track metadata ─────────────────────────────────────────────────────
+  const [trackTitle, setTrackTitle] = useState('');
+  const [trackArtist, setTrackArtist] = useState('');
+  const [trackBpm, setTrackBpm] = useState('');
+  const [trackKey, setTrackKey] = useState('');
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
 
@@ -173,6 +184,10 @@ export default function VaultAdminPage() {
     setKeyInput('');
     setKeyError('');
     setSelectedFile(null);
+    setTrackTitle('');
+    setTrackArtist('');
+    setTrackBpm('');
+    setTrackKey('');
     setStatus({ phase: 'idle', message: 'AWAITING INPUT', progress: 0, uploadedKey: '' });
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
@@ -181,6 +196,8 @@ export default function VaultAdminPage() {
   const handleFileSelect = useCallback((file: File) => {
     setSelectedFile(file);
     setStatus({ phase: 'idle', message: 'FILE LOADED — READY TO UPLOAD', progress: 0, uploadedKey: '' });
+    // Auto-populate title from filename (strip extension) if not already set
+    setTrackTitle((prev) => prev || titleFromFilename(file.name));
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -201,6 +218,12 @@ export default function VaultAdminPage() {
     const f = e.dataTransfer.files?.[0];
     if (f) handleFileSelect(f);
   };
+
+  // ── Clear file selection (reused in upload/sync error paths) ──────────────
+  const clearFileSelection = useCallback(() => {
+    setSelectedFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   // ── Upload handler ─────────────────────────────────────────────────────
   const handleUpload = async (e: React.FormEvent) => {
@@ -283,14 +306,76 @@ export default function VaultAdminPage() {
       });
 
       setStatus({
+        phase: 'syncing',
+        message: 'SYNCING LIBRARY MANIFEST...',
+        progress: 100,
+        uploadedKey: key,
+      });
+
+      // ── Step 3: Update library.json manifest ─────────────────────────────
+      // Derive the public audioUrl from the R2 object key using the bucket root.
+      const audioUrl = `${R2_PUBLIC_ROOT}/${key}`;
+      // Fallback title: handleFileSelect auto-populates trackTitle, but the user
+      // may have cleared it manually — derive from filename as a safety net.
+      const resolvedTitle = trackTitle.trim() || titleFromFilename(selectedFile.name);
+
+      try {
+        const syncRes = await fetch('/api/vault/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-syndicate-key': sessionKey,
+          },
+          body: JSON.stringify({
+            title: resolvedTitle,
+            artist: trackArtist.trim(),
+            bpm: trackBpm.trim(),
+            key: trackKey.trim(),
+            audioUrl,
+          }),
+        });
+
+        if (syncRes.status === 401) {
+          handleLock();
+          return;
+        }
+
+        const syncData = (await syncRes.json()) as { ok?: boolean; error?: string };
+        if (!syncRes.ok || !syncData.ok) {
+          // Sync failed but audio is already uploaded — surface warning, not error
+          setStatus({
+            phase: 'done',
+            message: `UPLOAD OK — MANIFEST SYNC FAILED: ${syncData.error ?? `HTTP ${syncRes.status}`}`,
+            progress: 100,
+            uploadedKey: key,
+          });
+          clearFileSelection();
+          return;
+        }
+      } catch (syncErr) {
+        setStatus({
+          phase: 'done',
+          message: `UPLOAD OK — MANIFEST SYNC ERROR: ${(syncErr as Error).message}`,
+          progress: 100,
+          uploadedKey: key,
+        });
+        clearFileSelection();
+        return;
+      }
+
+      setStatus({
         phase: 'done',
-        message: 'TRACK SECURED IN VAULT ✓',
+        message: 'TRACK SECURED IN VAULT ✓  MANIFEST UPDATED ✓',
         progress: 100,
         uploadedKey: key,
       });
 
       setSelectedFile(null);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      setTrackTitle('');
+      setTrackArtist('');
+      setTrackBpm('');
+      setTrackKey('');
+      clearFileSelection();
     } catch (err) {
       setStatus({
         phase: 'error',
@@ -308,11 +393,15 @@ export default function VaultAdminPage() {
   const handleReset = () => {
     setSelectedFile(null);
     setStatus({ phase: 'idle', message: 'AWAITING INPUT', progress: 0, uploadedKey: '' });
+    setTrackTitle('');
+    setTrackArtist('');
+    setTrackBpm('');
+    setTrackKey('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ── Phase-derived UI values ─────────────────────────────────────────────
-  const isBusy = status.phase === 'signing' || status.phase === 'uploading';
+  const isBusy = status.phase === 'signing' || status.phase === 'uploading' || status.phase === 'syncing';
   const progressBarColor =
     status.phase === 'done'
       ? 'var(--color-studio-gold)'
@@ -620,7 +709,7 @@ export default function VaultAdminPage() {
                 className="oled-display text-[9px] tracking-[0.15em] uppercase"
                 style={{ color: 'rgba(255,215,0,0.3)' }}
               >
-                {status.phase === 'signing' ? 'AUTHENTICATING' : 'TRANSFER'}
+                {status.phase === 'signing' ? 'AUTHENTICATING' : status.phase === 'syncing' ? 'MANIFEST SYNC' : 'TRANSFER'}
               </span>
               <span
                 className="oled-display text-[9px] tracking-[0.1em]"
@@ -723,7 +812,121 @@ export default function VaultAdminPage() {
             aria-hidden="true"
           />
 
-          {/* Action buttons */}
+          {/* ── Track Metadata Fields ────────────────────────────────── */}
+          <div
+            className="rounded-xl p-4 space-y-3"
+            style={{
+              background: 'rgba(0,0,0,0.25)',
+              border: '1px solid rgba(255,215,0,0.1)',
+            }}
+          >
+            <p
+              className="oled-display text-[10px] tracking-[0.25em] uppercase font-bold"
+              style={{ color: 'rgba(255,215,0,0.4)' }}
+            >
+              ▸ TRACK METADATA
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Title */}
+              <div className="col-span-2">
+                <label
+                  className="oled-display block text-[9px] tracking-[0.25em] uppercase mb-1"
+                  style={{ color: 'rgba(255,215,0,0.35)' }}
+                >
+                  TITLE
+                </label>
+                <input
+                  type="text"
+                  value={trackTitle}
+                  onChange={(e) => setTrackTitle(e.target.value)}
+                  placeholder="Track title..."
+                  disabled={isBusy}
+                  className="w-full oled-display text-xs rounded px-3 py-2 outline-none transition-all duration-200 disabled:opacity-40"
+                  style={{
+                    background: '#060606',
+                    border: '1px solid rgba(255,215,0,0.15)',
+                    color: 'var(--color-studio-gold)',
+                    letterSpacing: '0.08em',
+                    caretColor: 'var(--color-studio-gold)',
+                  }}
+                />
+              </div>
+              {/* Artist */}
+              <div className="col-span-2">
+                <label
+                  className="oled-display block text-[9px] tracking-[0.25em] uppercase mb-1"
+                  style={{ color: 'rgba(255,215,0,0.35)' }}
+                >
+                  ARTIST
+                </label>
+                <input
+                  type="text"
+                  value={trackArtist}
+                  onChange={(e) => setTrackArtist(e.target.value)}
+                  placeholder="Artist name..."
+                  disabled={isBusy}
+                  className="w-full oled-display text-xs rounded px-3 py-2 outline-none transition-all duration-200 disabled:opacity-40"
+                  style={{
+                    background: '#060606',
+                    border: '1px solid rgba(255,215,0,0.15)',
+                    color: 'var(--color-studio-gold)',
+                    letterSpacing: '0.08em',
+                    caretColor: 'var(--color-studio-gold)',
+                  }}
+                />
+              </div>
+              {/* BPM */}
+              <div>
+                <label
+                  className="oled-display block text-[9px] tracking-[0.25em] uppercase mb-1"
+                  style={{ color: 'rgba(255,215,0,0.35)' }}
+                >
+                  BPM
+                </label>
+                <input
+                  type="text"
+                  value={trackBpm}
+                  onChange={(e) => setTrackBpm(e.target.value)}
+                  placeholder="e.g. 128"
+                  disabled={isBusy}
+                  className="w-full oled-display text-xs rounded px-3 py-2 outline-none transition-all duration-200 disabled:opacity-40"
+                  style={{
+                    background: '#060606',
+                    border: '1px solid rgba(255,215,0,0.15)',
+                    color: 'var(--color-studio-gold)',
+                    letterSpacing: '0.08em',
+                    caretColor: 'var(--color-studio-gold)',
+                  }}
+                />
+              </div>
+              {/* Key */}
+              <div>
+                <label
+                  className="oled-display block text-[9px] tracking-[0.25em] uppercase mb-1"
+                  style={{ color: 'rgba(255,215,0,0.35)' }}
+                >
+                  KEY
+                </label>
+                <input
+                  type="text"
+                  value={trackKey}
+                  onChange={(e) => setTrackKey(e.target.value)}
+                  placeholder="e.g. 8A"
+                  disabled={isBusy}
+                  className="w-full oled-display text-xs rounded px-3 py-2 outline-none transition-all duration-200 disabled:opacity-40"
+                  style={{
+                    background: '#060606',
+                    border: '1px solid rgba(255,215,0,0.15)',
+                    color: 'var(--color-studio-gold)',
+                    letterSpacing: '0.08em',
+                    caretColor: 'var(--color-studio-gold)',
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+
           <div className="flex gap-3">
             <button
               type="submit"
@@ -742,7 +945,9 @@ export default function VaultAdminPage() {
                 ? 'AUTHENTICATING...'
                 : status.phase === 'uploading'
                   ? `UPLOADING ${status.progress}%`
-                  : 'UPLOAD TO VAULT'}
+                  : status.phase === 'syncing'
+                    ? 'SYNCING MANIFEST...'
+                    : 'UPLOAD TO VAULT'}
             </button>
 
             {isBusy ? (
@@ -794,12 +999,11 @@ export default function VaultAdminPage() {
               className="oled-display text-[10px] leading-relaxed"
               style={{ color: 'rgba(255,255,255,0.2)', letterSpacing: '0.05em' }}
             >
-              Tracks uploaded here are stored at{' '}
-              <span style={{ color: 'rgba(255,215,0,0.35)' }}>{R2_PUBLIC_BASE}/</span>
-              {'<filename>'}. They will appear in the{' '}
-              <span style={{ color: 'rgba(255,215,0,0.35)' }}>LIBRARY</span> panel once
-              the track manifest is refreshed. Use the Library reload button or restart
-              the session to pick up newly vaulted assets.
+              After upload, the manifest at{' '}
+              <span style={{ color: 'rgba(255,215,0,0.35)' }}>library.json</span> is
+              automatically updated. New tracks will appear in the{' '}
+              <span style={{ color: 'rgba(255,215,0,0.35)' }}>LIBRARY</span> panel on
+              next session load.
             </p>
           </div>
 
