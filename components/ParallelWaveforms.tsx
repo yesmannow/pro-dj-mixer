@@ -63,27 +63,43 @@ function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyR
 }
 
 /**
- * Renders the complete waveform for `buffer` into a new off-screen HTMLCanvasElement.
+ * Maximum number of audio samples to process per animation frame.
+ * Keeps each chunk well under the 16 ms frame budget so the UI stays responsive
+ * while the waveform progressively paints itself onto the off-screen canvas.
+ */
+const SAMPLES_PER_CHUNK = 100_000;
+
+/**
+ * Renders the complete waveform for `buffer` into a new off-screen HTMLCanvasElement
+ * using a **chunked requestAnimationFrame loop**.
+ *
+ * Instead of blocking the main thread for the entire buffer, it processes
+ * ~SAMPLES_PER_CHUNK samples per frame and yields, so the UI remains responsive
+ * while the waveform progressively paints itself.
  *
  * Bars are drawn in white (for later `multiply` compositing) at full opacity so that
  * the RGB overlay step can tint them to any colour without baking the live frequency
  * data into this cached layer.
  *
  * Called ONLY when the audio buffer or zoom level changes — never on every frame.
+ *
+ * @returns An object with the (initially blank) `canvas` and a `cancel` function.
+ *          The canvas is drawn into progressively and can be blitted each render
+ *          frame even before the build finishes.
  */
-function buildBackgroundCanvas(
+function buildBackgroundCanvasChunked(
   buffer: AudioBuffer,
   height: number,
   pps: number,
   isTop: boolean,
-): HTMLCanvasElement {
+): { canvas: HTMLCanvasElement; cancel: () => void } {
   const totalWidth = Math.max(1, Math.ceil(buffer.duration * pps));
   const canvas = document.createElement('canvas');
   canvas.width = totalWidth;
   canvas.height = Math.max(1, height);
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+  if (!ctx) return { canvas, cancel: () => {} };
 
   const left = buffer.getChannelData(0);
   const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
@@ -91,33 +107,61 @@ function buildBackgroundCanvas(
   const amp = height * 0.48;
   const barWidth = 2;
   const samplesPerBar = Math.max(1, Math.floor((barWidth / pps) * buffer.sampleRate));
+  const barsPerChunk = Math.max(1, Math.floor(SAMPLES_PER_CHUNK / samplesPerBar));
 
   // White bars — RGB tint is applied later via canvas `multiply` compositing.
   ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
 
-  for (let x = 0; x < totalWidth; x += barWidth) {
-    const timeAtPixel = x / pps;
-    if (timeAtPixel > buffer.duration) break;
+  let currentX = 0;
+  let frameId = 0;
+  let cancelled = false;
 
-    const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
-    let max = 0;
-    for (let i = 0; i < samplesPerBar; i++) {
-      const idx = sampleStart + i;
-      if (idx >= left.length) break;
-      const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
-      const abs = Math.abs(sample);
-      if (abs > max) max = abs;
+  const processChunk = () => {
+    if (cancelled) return;
+
+    const chunkEndX = Math.min(totalWidth, currentX + barsPerChunk * barWidth);
+
+    for (let x = currentX; x < chunkEndX; x += barWidth) {
+      const timeAtPixel = x / pps;
+      if (timeAtPixel > buffer.duration) {
+        currentX = totalWidth;
+        return; // done
+      }
+
+      const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
+      let max = 0;
+      for (let i = 0; i < samplesPerBar; i++) {
+        const idx = sampleStart + i;
+        if (idx >= left.length) break;
+        const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
+        const abs = Math.abs(sample);
+        if (abs > max) max = abs;
+      }
+
+      const barHeight = max * amp;
+      if (isTop) {
+        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+      } else {
+        ctx.fillRect(x, centerY, barWidth, barHeight);
+      }
     }
 
-    const barHeight = max * amp;
-    if (isTop) {
-      ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
-    } else {
-      ctx.fillRect(x, centerY, barWidth, barHeight);
-    }
-  }
+    currentX = chunkEndX;
 
-  return canvas;
+    if (currentX < totalWidth) {
+      frameId = requestAnimationFrame(processChunk);
+    }
+  };
+
+  frameId = requestAnimationFrame(processChunk);
+
+  return {
+    canvas,
+    cancel: () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    },
+  };
 }
 
 /**
@@ -322,9 +366,14 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
 
   /**
    * Off-screen canvas cache.
-   * The expensive `buildBackgroundCanvas` call is skipped unless buffer, zoom, or
+   * The expensive chunked waveform build is skipped unless buffer, zoom, or
    * canvas height has changed since the last build.
    */
+  const bgBuildCancelRef = useRef<{
+    cancelA?: () => void;
+    cancelB?: () => void;
+  }>({});
+
   const bgStateRef = useRef<{
     canvasA: HTMLCanvasElement | null;
     canvasB: HTMLCanvasElement | null;
@@ -379,6 +428,10 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+
+    // Capture the mutable build-cancel bag once so the cleanup closure satisfies
+    // the react-hooks/exhaustive-deps rule (same object, mutated in place).
+    const buildCancels = bgBuildCancelRef.current;
 
     let animationFrameId: number;
     let lastTime = performance.now();
@@ -443,26 +496,34 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
         bg.halfHeight !== halfHeight;
 
       if (needsA) {
+        buildCancels.cancelA?.();
         if (snapA.buffer) {
           // Cap pps so the background canvas never exceeds OFFSCREEN_MAX_WIDTH.
           const pps = Math.min(pixelsPerSecond, OFFSCREEN_MAX_WIDTH / snapA.buffer.duration);
-          bg.canvasA = buildBackgroundCanvas(snapA.buffer, halfHeight, pps, true);
+          const { canvas, cancel } = buildBackgroundCanvasChunked(snapA.buffer, halfHeight, pps, true);
+          bg.canvasA = canvas;
           bg.ppsA = pps;
+          buildCancels.cancelA = cancel;
         } else {
           bg.canvasA = null;
           bg.ppsA = pixelsPerSecond;
+          buildCancels.cancelA = undefined;
         }
         bg.bufferA = snapA.buffer;
       }
 
       if (needsB) {
+        buildCancels.cancelB?.();
         if (snapB.buffer) {
           const pps = Math.min(pixelsPerSecond, OFFSCREEN_MAX_WIDTH / snapB.buffer.duration);
-          bg.canvasB = buildBackgroundCanvas(snapB.buffer, halfHeight, pps, false);
+          const { canvas, cancel } = buildBackgroundCanvasChunked(snapB.buffer, halfHeight, pps, false);
+          bg.canvasB = canvas;
           bg.ppsB = pps;
+          buildCancels.cancelB = cancel;
         } else {
           bg.canvasB = null;
           bg.ppsB = pixelsPerSecond;
+          buildCancels.cancelB = undefined;
         }
         bg.bufferB = snapB.buffer;
       }
@@ -542,6 +603,8 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
+      buildCancels.cancelA?.();
+      buildCancels.cancelB?.();
     };
   }, [zoom]);
 

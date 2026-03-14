@@ -88,7 +88,7 @@ export function usePerformanceFX({
     engine.startStutter(deckId, cueTime);
   }, [bpm, currentTime, deckId, padMode]);
 
-  const handleCueTimeRelease = useCallback((cueTime: number) => {
+  const handleCueTimeRelease = useCallback((_cueTime: number) => {
     const engine = AudioEngine.getInstance();
 
     if (padMode === 'slip-roll') {
@@ -102,7 +102,7 @@ export function usePerformanceFX({
       return;
     }
 
-    engine.stopStutter(deckId, cueTime);
+    // Hot cue: playback continues after the jump — no stop on release.
   }, [deckId, padMode]);
 
   const handlePadHold = useCallback(async (slot: number) => {
