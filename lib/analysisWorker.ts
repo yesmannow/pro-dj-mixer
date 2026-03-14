@@ -5,13 +5,6 @@ export interface AnalysisRequest {
   duration: number;
 }
 
-export interface DecodeRequest {
-  id: string;
-  type: 'decode';
-  arrayBuffer: ArrayBuffer;
-  sampleRate: number;
-}
-
 export interface AnalysisResponse {
   id: string;
   bpm: number;
@@ -142,42 +135,21 @@ const handleAnalyze = (request: AnalysisRequest): AnalysisResponse => {
 
 const ctx = globalThis as any;
 
-ctx.onmessage = async (event: MessageEvent<AnalysisRequest | DecodeRequest>) => {
+ctx.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
   const request = event.data;
   try {
-    // Handle decode requests: decode audio in worker via OfflineAudioContext,
-    // then immediately run analysis on the decoded data.
-    if ('type' in request && request.type === 'decode') {
-      const sampleRate = request.sampleRate || 44100;
-      // Estimate length from ArrayBuffer size (assume 16-bit stereo as worst case for sizing)
-      const estimatedLength = Math.max(sampleRate, Math.ceil(request.arrayBuffer.byteLength / 2));
-      const offlineCtx = new OfflineAudioContext(1, estimatedLength, sampleRate);
-      const audioBuffer = await offlineCtx.decodeAudioData(request.arrayBuffer);
-      const channelData = audioBuffer.getChannelData(0);
-      const analysisResponse = handleAnalyze({
-        id: request.id,
-        channelData,
-        sampleRate: audioBuffer.sampleRate,
-        duration: audioBuffer.duration,
-      });
-      ctx.postMessage(analysisResponse, [analysisResponse.overviewPeaks.buffer]);
-      return;
-    }
-
-    // Handle standard analysis requests
-    const analysisReq = request as AnalysisRequest;
-    if (!analysisReq.channelData || typeof analysisReq.sampleRate !== 'number' || typeof analysisReq.duration !== 'number') {
+    if (!request.channelData || typeof request.sampleRate !== 'number' || typeof request.duration !== 'number') {
       throw new Error('Invalid analysis request: expected channelData, sampleRate, duration.');
     }
 
-    const response = handleAnalyze(analysisReq);
+    const response = handleAnalyze(request);
     ctx.postMessage(response, [response.overviewPeaks.buffer]);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const response: AnalysisResponse = {
       id: request?.id ?? 'unknown',
       bpm: DEFAULT_BPM,
-      duration: ('duration' in request && typeof request.duration === 'number') ? request.duration : 0,
+      duration: request?.duration ?? 0,
       overviewPeaks: new Float32Array(500),
       error: message,
     };
