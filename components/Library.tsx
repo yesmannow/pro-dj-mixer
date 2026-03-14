@@ -128,6 +128,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
   const [sparklineCache, setSparklineCache] = useState<Record<string, number[]>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const analyzerWorkerRef = useRef<Worker | null>(null);
   // Reuse a single AudioContext for all BPM decode operations (lightweight, non-realtime)
@@ -137,8 +138,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
   const {
     tracks,
     processingTracks,
-    loadTracks,
-    seedLibrary,
+    fetchLibrary,
     queueFilesForIngestion,
     loadPikoVault,
     isProcessingQueue,
@@ -210,12 +210,19 @@ export const Library = memo(function Library({ compact = false, expanded = false
   });
 
   useEffect(() => {
-    loadTracks().then(() => {
-      seedLibrary();
-    });
+    const loadLibrary = async () => {
+      setIsLoadingLibrary(true);
+      try {
+        await fetchLibrary();
+      } finally {
+        setIsLoadingLibrary(false);
+      }
+    };
+    void loadLibrary();
     loadCrates();
     loadHistory();
-  }, [loadTracks, seedLibrary, loadCrates, loadHistory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount - store actions are stable
 
   // Initialise the analyzer worker (public/workers/analyzer.worker.js)
   useEffect(() => {
@@ -937,8 +944,17 @@ export const Library = memo(function Library({ compact = false, expanded = false
             })}
             {tracks.length === 0 && (
               <div className="col-span-full py-12 text-center text-slate-500">
-                <UploadCloud className="w-8 h-8 text-slate-600 mx-auto mb-2" />
-                <p>No tracks in library.</p>
+                {isLoadingLibrary ? (
+                  <>
+                    <Loader2 className="w-8 h-8 text-slate-600 mx-auto mb-2 animate-spin" />
+                    <p>Loading vault...</p>
+                  </>
+                ) : (
+                  <>
+                    <UploadCloud className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                    <p>No tracks in library.</p>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1175,10 +1191,17 @@ export const Library = memo(function Library({ compact = false, expanded = false
               {tracks.length === 0 && processingTracks.length === 0 && (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
-                    <div className="flex flex-col items-center gap-2">
-                      <UploadCloud className="w-8 h-8 text-slate-600" />
-                      <p>No tracks in library. Drag and drop audio files here to analyze.</p>
-                    </div>
+                    {isLoadingLibrary ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <Loader2 className="w-8 h-8 text-slate-600 animate-spin" />
+                        <p>Loading vault...</p>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <UploadCloud className="w-8 h-8 text-slate-600" />
+                        <p>No tracks in library. Drag and drop audio files here to analyze.</p>
+                      </div>
+                    )}
                   </td>
                 </tr>
               )}
