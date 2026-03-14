@@ -24,7 +24,7 @@ const DEFAULT_RGB = 80;
 
 /** Beats per phrase marker (4 bars × 4 beats = 16 beats) */
 const BEATS_PER_PHRASE_MARKER = 16;
-/** Beat-phase tolerance for the ghost playhead lock indicator (~20ms at 120 BPM). */
+/** Beat-phase tolerance for the ghost playhead lock indicator (~20ms at 120 BPM because 0.04 × 500ms = 20ms). */
 const PHASE_ALIGNMENT_TOLERANCE = 0.04;
 
 /**

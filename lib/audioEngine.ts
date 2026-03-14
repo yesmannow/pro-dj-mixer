@@ -107,6 +107,7 @@ export class AudioEngine {
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
+  private static readonly NEURAL_FADE_CURVE_EXPONENT = 0.72;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
@@ -310,8 +311,9 @@ export class AudioEngine {
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
       gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
     });
-    // Preserve the pre-Phase-7 deck-wide FX sound on load by starting fully routed to the FX path.
-    // Users can then drop individual stems back to the direct path via the new FX Sends UI.
+    // Before Phase 7 every stem branch fed the deck FX bus, so deck FX always processed the full deck.
+    // Start in that same all-to-FX posture so existing mixes still sound identical until the user
+    // deliberately drops specific stems back to the dry path via the new FX Sends controls.
     [drumsDirectGain, instDirectGain, vocalsDirectGain].forEach((gainNode) => {
       gainNode.gain.value = 0;
     });
@@ -811,8 +813,8 @@ export class AudioEngine {
 
     if (curve === 'neural') {
       const softened = 0.5 - 0.5 * Math.cos(x * Math.PI);
-      const gainA = Math.pow(1 - softened, 0.72);
-      const gainB = Math.pow(softened, 0.72);
+      const gainA = Math.pow(1 - softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
+      const gainB = Math.pow(softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
       return { gainA, gainB };
     }
 
