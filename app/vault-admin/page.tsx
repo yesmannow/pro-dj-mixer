@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,8 +19,14 @@ interface UploadStatus {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Client-side syndicate key. If unset, any non-empty value is accepted (dev mode). */
-const SYNDICATE_KEY = process.env.NEXT_PUBLIC_SYNDICATE_KEY;
+/**
+ * When NEXT_PUBLIC_VAULT_KEY is set, show a hint on the lock screen that a key
+ * is configured. Do NOT use it for auth comparisons — the API route enforces
+ * the real check via VAULT_KEY (server-only env var).
+ */
+const VAULT_KEY_CONFIGURED = Boolean(process.env.NEXT_PUBLIC_VAULT_KEY);
+
+const SESSION_KEY = 'vault_syndicate_key';
 
 const ACCEPTED_MIME_TYPES = [
   'audio/mpeg',
@@ -98,9 +104,22 @@ function StatusLed({ active, color }: { active: boolean; color: string }) {
 export default function VaultAdminPage() {
   // ── Auth state ─────────────────────────────────────────────────────────
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [sessionKey, setSessionKey] = useState('');
   const [keyInput, setKeyInput] = useState('');
   const [keyError, setKeyError] = useState('');
-  const [authAttempts, setAuthAttempts] = useState(0);
+
+  // ── Restore session on mount ────────────────────────────────────────────
+  useEffect(() => {
+    try {
+      const stored = sessionStorage.getItem(SESSION_KEY);
+      if (stored) {
+        setSessionKey(stored);
+        setIsUnlocked(true);
+      }
+    } catch {
+      // sessionStorage unavailable (e.g. private browsing restrictions) — ignore
+    }
+  }, []);
 
   // ── Upload state ───────────────────────────────────────────────────────
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -125,19 +144,38 @@ export default function VaultAdminPage() {
       return;
     }
 
-    const isValid = SYNDICATE_KEY ? trimmed === SYNDICATE_KEY : trimmed.length > 0;
+    // Accept any non-empty key — the server is the sole auth authority.
+    // A wrong key will surface as a 401 on the first upload attempt, at
+    // which point handleLock() automatically re-locks the UI.
 
-    if (!isValid) {
-      const attempts = authAttempts + 1;
-      setAuthAttempts(attempts);
-      setKeyError(`ACCESS DENIED — INVALID KEY [ATTEMPT ${attempts}]`);
-      setKeyInput('');
-      return;
+    // Persist the key for this browser session so re-entry is not required
+    // per upload. Stored in sessionStorage (cleared on tab close).
+    // NOTE: requires HTTPS in production — Vercel enforces this.
+    try {
+      sessionStorage.setItem(SESSION_KEY, trimmed);
+    } catch {
+      // Ignore write failures (e.g. private browsing restrictions)
     }
-
+    setSessionKey(trimmed);
     setIsUnlocked(true);
     setKeyError('');
   };
+
+  // ── Lock handler ───────────────────────────────────────────────────────
+  const handleLock = useCallback(() => {
+    try {
+      sessionStorage.removeItem(SESSION_KEY);
+    } catch {
+      // Ignore
+    }
+    setSessionKey('');
+    setIsUnlocked(false);
+    setKeyInput('');
+    setKeyError('');
+    setSelectedFile(null);
+    setStatus({ phase: 'idle', message: 'AWAITING INPUT', progress: 0, uploadedKey: '' });
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, []);
 
   // ── File selection ─────────────────────────────────────────────────────
   const handleFileSelect = useCallback((file: File) => {
@@ -178,12 +216,21 @@ export default function VaultAdminPage() {
     try {
       const res = await fetch('/api/vault', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-syndicate-key': sessionKey,
+        },
         body: JSON.stringify({
           filename: selectedFile.name,
           contentType: getFileContentType(selectedFile),
         }),
       });
+
+      // 401 means the server rejected our key — re-lock to force re-entry
+      if (res.status === 401) {
+        handleLock();
+        return;
+      }
 
       const data = (await res.json()) as { uploadUrl?: string; key?: string; error?: string };
 
@@ -333,7 +380,6 @@ export default function VaultAdminPage() {
                 <span className="ml-1">SYSTEM: LOCKED</span>
                 <OledCursor />
               </div>
-              <div className="mt-1 opacity-50">AUTH ATTEMPTS: {authAttempts}</div>
             </div>
 
             <form onSubmit={handleUnlock} className="space-y-4">
@@ -383,12 +429,12 @@ export default function VaultAdminPage() {
                     ⚠ {keyError}
                   </p>
                 )}
-                {!SYNDICATE_KEY && (
+                {!VAULT_KEY_CONFIGURED && (
                   <p
                     className="oled-display text-[10px] tracking-[0.1em] mt-2"
                     style={{ color: 'rgba(255,215,0,0.25)' }}
                   >
-                    [DEV MODE — ANY NON-EMPTY KEY ACCEPTED]
+                    [DEV MODE — SET VAULT_KEY ENV VAR TO ENABLE AUTH]
                   </p>
                 )}
               </div>
@@ -479,11 +525,7 @@ export default function VaultAdminPage() {
 
             {/* Lock button */}
             <button
-              onClick={() => {
-                setIsUnlocked(false);
-                setKeyInput('');
-                setAuthAttempts(0);
-              }}
+              onClick={handleLock}
               className="oled-display text-[10px] tracking-[0.2em] uppercase px-3 py-1.5 rounded transition-all duration-150 hover:brightness-110 active:scale-95"
               style={{
                 background: 'rgba(255,0,60,0.08)',

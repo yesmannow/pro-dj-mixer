@@ -1,53 +1,6 @@
-import { createHmac, createHash } from 'crypto';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NextResponse } from 'next/server';
-
-// ---------------------------------------------------------------------------
-// Helpers — AWS Signature V4
-// ---------------------------------------------------------------------------
-
-/** URI-encode a string per AWS SigV4 spec (encodes everything except unreserved chars). */
-function awsUriEncode(str: string): string {
-  // encodeURIComponent leaves ! * ' ( ) unencoded; AWS requires them encoded too.
-  return encodeURIComponent(str).replace(/[!'()*]/g, (c) =>
-    '%' + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-}
-
-/** SHA-256 hex digest. */
-function sha256Hex(data: string): string {
-  return createHash('sha256').update(data, 'utf8').digest('hex');
-}
-
-/** HMAC-SHA256 returning a Buffer. */
-function hmacSha256(key: Buffer | string, data: string): Buffer {
-  return createHmac('sha256', key).update(data, 'utf8').digest();
-}
-
-/**
- * Derive the SigV4 signing key:
- *   HMAC("AWS4" + secret, date) → HMAC(_, region) → HMAC(_, service) → HMAC(_, "aws4_request")
- */
-function deriveSigningKey(
-  secretKey: string,
-  date: string,
-  region: string,
-  service: string,
-): Buffer {
-  const kDate = hmacSha256('AWS4' + secretKey, date);
-  const kRegion = hmacSha256(kDate, region);
-  const kService = hmacSha256(kRegion, service);
-  return hmacSha256(kService, 'aws4_request');
-}
-
-/** Format a Date as "YYYYMMDDTHHmmssZ" (no separators). */
-function formatDatetime(d: Date): string {
-  return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-}
-
-/** Format a Date as "YYYYMMDD". */
-function formatDate(d: Date): string {
-  return formatDatetime(d).slice(0, 8);
-}
 
 // ---------------------------------------------------------------------------
 // Allowed content types
@@ -72,7 +25,18 @@ const ALLOWED_CONTENT_TYPES = new Set([
 // ---------------------------------------------------------------------------
 
 export async function POST(req: Request): Promise<NextResponse> {
-  // ── 1. Parse & validate input ────────────────────────────────────────────
+  // ── 1. Server-side Syndicate Key authentication ──────────────────────────
+  // Uses VAULT_KEY (no NEXT_PUBLIC_ prefix) so the secret is never embedded
+  // in the browser bundle.
+  const vaultKey = process.env.VAULT_KEY;
+  if (vaultKey) {
+    const providedKey = req.headers.get('x-syndicate-key');
+    if (!providedKey || providedKey !== vaultKey) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
+
+  // ── 2. Parse & validate input ────────────────────────────────────────────
   let body: unknown;
   try {
     body = await req.json();
@@ -104,26 +68,27 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // Sanitize filename: strip directory components, keep only safe chars
+  // Sanitize filename: strip directory components, keep only safe chars,
+  // and explicitly reject ".." sequences to block path traversal.
   const basename = filename.split(/[\\/]/).pop() ?? filename;
   const safeFilename = basename
     .replace(/[^a-zA-Z0-9._\-]/g, '_') // replace unsafe chars
     .replace(/^\.+/, '')                 // no leading dots
     .slice(0, 255);                      // length cap
 
-  if (!safeFilename) {
+  if (!safeFilename || safeFilename.includes('..')) {
     return NextResponse.json({ error: 'Invalid filename' }, { status: 400 });
   }
 
-  // ── 2. Read environment config ───────────────────────────────────────────
+  // ── 3. Read environment config ───────────────────────────────────────────
+  // R2_ENDPOINT: the Cloudflare R2 S3-compatible API base URL
+  //   Format: https://<account_id>.r2.cloudflarestorage.com
   const endpoint = process.env.R2_ENDPOINT;
-  // R2_BUCKET_NAME: the S3/R2 bucket name used in path-style URLs
-  //   e.g. https://<accountid>.r2.cloudflarestorage.com/<bucketName>/<key>
   const bucketName = process.env.R2_BUCKET_NAME ?? 'audio';
-  // R2_KEY_PREFIX: the object-key prefix (folder) inside the bucket.
-  //   Intentionally separate from R2_BUCKET_NAME so the two can be configured
-  //   independently without creating paths like "audio/audio/<file>".
-  const keyPrefix = process.env.R2_KEY_PREFIX ?? 'audio';
+  // R2_KEY_PREFIX: object-key prefix (folder) inside the bucket.
+  //   Kept separate from R2_BUCKET_NAME to avoid double-prefix paths.
+  //   Defaults to 'audio'. Must be non-empty.
+  const keyPrefix = (process.env.R2_KEY_PREFIX ?? 'audio').replace(/^\/|\/$/g, '') || 'audio';
   const accessKeyId = process.env.R2_ACCESS_KEY_ID;
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 
@@ -135,77 +100,28 @@ export async function POST(req: Request): Promise<NextResponse> {
     );
   }
 
-  // ── 3. Build presigned PUT URL ────────────────────────────────────────────
+  // ── 4. Generate presigned PUT URL via AWS SDK ─────────────────────────────
   try {
-    const region = 'auto'; // Cloudflare R2 uses the "auto" region
-    const service = 's3';
-    const expiresIn = 3600;
+    const client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+      // Cloudflare R2 requires path-style URLs
+      forcePathStyle: true,
+    });
 
-    const now = new Date();
-    const datetime = formatDatetime(now);
-    const date = formatDate(now);
-
-    // Object key inside the bucket (uses configurable prefix, not a hardcoded one)
     const objectKey = `${keyPrefix}/${safeFilename}`;
 
-    // Parse the R2 endpoint to extract the hostname
-    const endpointUrl = new URL(endpoint);
-    const hostname = endpointUrl.hostname;
+    const command = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: objectKey,
+      ContentType: normalizedCT,
+    });
 
-    // Credential scope & credential string
-    const credentialScope = `${date}/${region}/${service}/aws4_request`;
-    const credentialString = `${accessKeyId}/${credentialScope}`;
-
-    // ── Canonical query string (params MUST be sorted by key) ──────────────
-    const rawParams: [string, string][] = [
-      ['X-Amz-Algorithm', 'AWS4-HMAC-SHA256'],
-      ['X-Amz-Credential', credentialString],
-      ['X-Amz-Date', datetime],
-      ['X-Amz-Expires', String(expiresIn)],
-      ['X-Amz-SignedHeaders', 'host'],
-    ];
-    rawParams.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    const canonicalQueryString = rawParams
-      .map(([k, v]) => `${awsUriEncode(k)}=${awsUriEncode(v)}`)
-      .join('&');
-
-    // ── Canonical URI: /{bucket}/{key}, each segment encoded ───────────────
-    const pathSegments = ['', bucketName, ...objectKey.split('/')];
-    const canonicalUri = pathSegments.map(awsUriEncode).join('/');
-
-    // ── Canonical headers & signed headers ────────────────────────────────
-    const canonicalHeaders = `host:${hostname}\n`;
-    const signedHeaders = 'host';
-
-    // ── Canonical request ─────────────────────────────────────────────────
-    const canonicalRequest = [
-      'PUT',
-      canonicalUri,
-      canonicalQueryString,
-      canonicalHeaders,
-      signedHeaders,
-      'UNSIGNED-PAYLOAD',
-    ].join('\n');
-
-    // ── String to sign ────────────────────────────────────────────────────
-    const canonicalRequestHash = sha256Hex(canonicalRequest);
-    const stringToSign = [
-      'AWS4-HMAC-SHA256',
-      datetime,
-      credentialScope,
-      canonicalRequestHash,
-    ].join('\n');
-
-    // ── Signing key & signature ───────────────────────────────────────────
-    const signingKey = deriveSigningKey(secretAccessKey, date, region, service);
-    const signature = createHmac('sha256', signingKey)
-      .update(stringToSign, 'utf8')
-      .digest('hex');
-
-    // ── Assemble final presigned URL ──────────────────────────────────────
-    const uploadUrl =
-      `${endpointUrl.origin}/${bucketName}/${objectKey}` +
-      `?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+    const uploadUrl = await getSignedUrl(client, command, { expiresIn: 3600 });
 
     return NextResponse.json({ uploadUrl, key: objectKey });
   } catch (err) {
