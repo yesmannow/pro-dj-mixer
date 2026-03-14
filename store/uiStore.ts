@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type MobileNavTab = 'DECK_A' | 'MIXER' | 'DECK_B' | 'LIBRARY';
+type MobileNavTab = 'DECK_A' | 'MIXER' | 'DECK_B';
 
 interface UIState {
   isWaveformVisible: boolean;
@@ -17,6 +17,7 @@ interface UIState {
   isPerformanceMode: boolean;
   isGridView: boolean;
   activeTab: MobileNavTab;
+  isLibraryOverlayOpen: boolean;
   toggleWaveform: () => void;
   toggleLibrary: () => void;
   toggleDeckA: () => void;
@@ -31,6 +32,7 @@ interface UIState {
   togglePerformanceMode: () => void;
   toggleGridView: () => void;
   setActiveTab: (tab: MobileNavTab) => void;
+  setIsLibraryOverlayOpen: (isOpen: boolean) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -48,6 +50,7 @@ export const useUIStore = create<UIState>((set) => ({
   isPerformanceMode: false,
   isGridView: false,
   activeTab: 'DECK_A' as MobileNavTab,
+  isLibraryOverlayOpen: false,
   toggleWaveform: () => set((state) => ({ isWaveformVisible: !state.isWaveformVisible })),
   toggleLibrary: () => set((state) => ({ isLibraryVisible: !state.isLibraryVisible })),
   toggleDeckA: () => set((state) => ({ isDeckAVisible: !state.isDeckAVisible })),
@@ -64,4 +67,5 @@ export const useUIStore = create<UIState>((set) => ({
   togglePerformanceMode: () => set((state) => ({ isPerformanceMode: !state.isPerformanceMode })),
   toggleGridView: () => set((state) => ({ isGridView: !state.isGridView })),
   setActiveTab: (tab) => set({ activeTab: tab }),
+  setIsLibraryOverlayOpen: (isOpen) => set({ isLibraryOverlayOpen: isOpen }),
 }));

@@ -451,15 +451,8 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const timeRemaining = track ? formatTime(duration - currentTime) : '00:00.00';
 
   const handleLoadTrack = useCallback(() => {
-    if (compact) {
-      useUIStore.getState().setActiveTab('LIBRARY');
-    } else {
-      const state = useUIStore.getState();
-      if (!state.isLibraryVisible) {
-        state.toggleLibrary();
-      }
-    }
-  }, [compact]);
+    useUIStore.getState().setIsLibraryOverlayOpen(true);
+  }, []);
 
   const handleOverviewScrub = useCallback(
     (targetTime: number) => {
