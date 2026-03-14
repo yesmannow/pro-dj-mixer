@@ -928,7 +928,10 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
         accentColor={deckTheme.primary}
         accentRgb={deckTheme.primaryRgb}
         secondaryColor={deckTheme.secondary}
-        onFxChange={(type, val) => AudioEngine.getInstance().setDeckFX(deckId, type, val)}
+        onFxChange={(type, val) => {
+          const trackBpm = Number(track?.bpm) || 120;
+          AudioEngine.getInstance().setDeckFX(deckId, type, val, trackBpm);
+        }}
         onStemFxSendChange={(stem, active) => AudioEngine.getInstance().setStemFXSend(deckId, stem, active ? 1 : 0)}
       />
     </section>

@@ -236,4 +236,31 @@
   .db-led-loading {
     animation: db-led-pulse 1s ease-in-out infinite;
   }
+
+  /* ── Mobile-First Responsive ─────────────────────────────────── */
+  @media (max-width: 767px) {
+    .deck-container {
+      min-height: 0;
+      padding: 0.75rem;
+    }
+  }
+
+  @media (min-width: 768px) and (max-width: 1024px) {
+    .deck-container {
+      padding: 1rem;
+    }
+
+    .mpc-pad,
+    .stem-led,
+    input[type="range"],
+    button {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
+  /* Prevent rubber-banding on scrollable library containers */
+  .library-container {
+    overscroll-behavior: contain;
+  }
 }

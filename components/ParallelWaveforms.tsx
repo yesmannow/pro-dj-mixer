@@ -62,6 +62,34 @@ function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyR
   };
 }
 
+/** Zero-crossing rate threshold below which a bar is classified as bass */
+const ZCR_BASS_THRESHOLD = 0.1;
+/** Zero-crossing rate threshold below which a bar is classified as mid (above = high) */
+const ZCR_MID_THRESHOLD = 0.3;
+/** Waveform bar color for bass-dominant regions */
+const COLOR_BASS = '#FF003C';
+/** Waveform bar color for mid-dominant regions */
+const COLOR_MID = '#FFD700';
+/** Waveform bar color for high-dominant regions */
+const COLOR_HIGH = '#FFFFFF';
+
+/**
+ * Determines the color of a waveform bar based on zero-crossing rate analysis.
+ * Low ZCR → bass → Crimson, Medium → Gold, High → White.
+ */
+function getBarColor(samples: Float32Array, right: Float32Array | null, start: number, count: number): string {
+  let zeroCrossings = 0;
+  for (let i = 1; i < count && (start + i) < samples.length; i++) {
+    const current = right ? (samples[start + i] + right[start + i]) * 0.5 : samples[start + i];
+    const prev = right ? (samples[start + i - 1] + right[start + i - 1]) * 0.5 : samples[start + i - 1];
+    if ((current >= 0) !== (prev >= 0)) zeroCrossings++;
+  }
+  const zcr = zeroCrossings / count;
+  if (zcr < ZCR_BASS_THRESHOLD) return COLOR_BASS;
+  if (zcr < ZCR_MID_THRESHOLD) return COLOR_MID;
+  return COLOR_HIGH;
+}
+
 /**
  * Maximum number of audio samples to process per animation frame.
  * Keeps each chunk well under the 16 ms frame budget so the UI stays responsive
@@ -109,9 +137,6 @@ function buildBackgroundCanvasChunked(
   const samplesPerBar = Math.max(1, Math.floor((barWidth / pps) * buffer.sampleRate));
   const barsPerChunk = Math.max(1, Math.floor(SAMPLES_PER_CHUNK / samplesPerBar));
 
-  // White bars — RGB tint is applied later via canvas `multiply` compositing.
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
-
   let currentX = 0;
   let frameId = 0;
   let cancelled = false;
@@ -137,6 +162,10 @@ function buildBackgroundCanvasChunked(
         const abs = Math.abs(sample);
         if (abs > max) max = abs;
       }
+
+      // Per-bar frequency coloring via zero-crossing rate analysis
+      const barColor = getBarColor(left, right, sampleStart, samplesPerBar);
+      ctx.fillStyle = barColor;
 
       const barHeight = max * amp;
       if (isTop) {
@@ -256,11 +285,12 @@ function drawBeatGrid(
   }
 }
 
-function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: number, isPhaseAligned?: boolean): void {
   const centerPixel = width / 2;
-  ctx.shadowColor = '#ffffff';
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = '#ffffff';
+  const color = isPhaseAligned ? '#00FF00' : '#ffffff';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = isPhaseAligned ? 20 : 10;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
 
   ctx.beginPath();
@@ -268,7 +298,7 @@ function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: numb
   ctx.lineTo(centerPixel, height);
   ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(centerPixel, height / 2 - 6);
   ctx.lineTo(centerPixel + 6, height / 2);
@@ -593,7 +623,7 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
       drawGhostPlayhead(ctx, width, halfHeight, halfHeight, playheadA - playheadB, pixelsPerSecond, phaseAlignment.isAligned);
 
       // 6. Playhead — always on top of everything.
-      drawPlayhead(ctx, width, height);
+      drawPlayhead(ctx, width, height, phaseAlignment.isAligned);
 
       animationFrameId = requestAnimationFrame(renderLoop);
     };

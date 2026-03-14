@@ -25,6 +25,10 @@ const SPARKLINE_HISTORY_SIZE = 8;
 /** Energy levels for sparkline color transitions (green → yellow → red) */
 const SPARKLINE_HIGH_ENERGY = 0.6;
 const SPARKLINE_MID_ENERGY = 0.3;
+/** Minimum beat-phase offset before the neural crossfader applies a correction */
+const PHASE_ALIGNMENT_THRESHOLD = 0.01;
+/** Fraction of the computed timing correction applied per frame (avoids oscillation) */
+const PHASE_CORRECTION_DAMPING = 0.6;
 const DEFAULT_AI_CRATE_PROMPT = 'Show me tracks for a 124 BPM house set.';
 const DEFAULT_RECORDING_PROFILE = {
   sampleRate: 48000,
@@ -151,6 +155,7 @@ function EQKnob({
 
   const handleDoubleClick = () => {
     onChange(0);
+    navigator.vibrate?.(10);
   };
 
   // Rotation from -135deg to +135deg
@@ -311,7 +316,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     setVolume(deckId, ratio);
   }, [setVolume]);
 
-  const handleCrossfaderMove = useCallback((e: MouseEvent) => {
+  const handleCrossfaderMove = useCallback((e: PointerEvent) => {
     if (!isDraggingCrossfader.current || !crossfaderRef.current) return;
     const rect = crossfaderRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -322,14 +327,14 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
 
   function handleCrossfaderUp() {
     isDraggingCrossfader.current = false;
-    document.removeEventListener('mousemove', handleCrossfaderMove);
-    document.removeEventListener('mouseup', handleCrossfaderUp);
+    document.removeEventListener('pointermove', handleCrossfaderMove);
+    document.removeEventListener('pointerup', handleCrossfaderUp);
   }
 
-  const handleCrossfaderDown = (e: React.MouseEvent) => {
+  const handleCrossfaderDown = (e: React.PointerEvent) => {
     isDraggingCrossfader.current = true;
-    document.addEventListener('mousemove', handleCrossfaderMove);
-    document.addEventListener('mouseup', handleCrossfaderUp);
+    document.addEventListener('pointermove', handleCrossfaderMove);
+    document.addEventListener('pointerup', handleCrossfaderUp);
     // Also update immediately on click
     if (crossfaderRef.current) {
       const rect = crossfaderRef.current.getBoundingClientRect();
@@ -342,6 +347,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
 
   const handleCrossfaderDoubleClick = () => {
     setCrossfader(0);
+    navigator.vibrate?.(10);
   };
 
   const stopVolDrag = useCallback(() => {
@@ -494,11 +500,14 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     }
 
     const engine = AudioEngine.getInstance();
-    const interval = window.setInterval(() => {
+    let rafId: number;
+
+    const tick = () => {
       const { deckA, deckB } = useDeckStore.getState();
       const bpmA = Number(deckA.track?.bpm);
       const bpmB = Number(deckB.track?.bpm);
       if (!deckA.isPlaying || !deckB.isPlaying || !Number.isFinite(bpmA) || !Number.isFinite(bpmB) || bpmA <= 0 || bpmB <= 0) {
+        rafId = requestAnimationFrame(tick);
         return;
       }
 
@@ -509,19 +518,22 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       let phaseDelta = phaseB - phaseA;
       if (phaseDelta > 0.5) phaseDelta -= 1;
       if (phaseDelta < -0.5) phaseDelta += 1;
-      if (Math.abs(phaseDelta) < 0.01) return;
+      if (Math.abs(phaseDelta) >= PHASE_ALIGNMENT_THRESHOLD) {
+        const targetDeck = crossfader <= 0 ? 'B' : 'A';
+        const targetState = targetDeck === 'A' ? deckA : deckB;
+        const baseRate = Math.max(0.5, Math.min(2.0, 1 + targetState.pitchPercent / 100));
+        const correctionWindow = Math.min(0.005, Math.abs(phaseDelta) * Math.min(secPerBeatA, secPerBeatB));
+        const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * PHASE_CORRECTION_DAMPING;
+        engine.setDeckPlaybackRate(targetDeck, correctedRate);
+      }
 
-      const targetDeck = crossfader <= 0 ? 'B' : 'A';
-      const targetState = targetDeck === 'A' ? deckA : deckB;
-      const baseRate = Math.max(0.5, Math.min(2.0, 1 + targetState.pitchPercent / 100));
-      const correctionWindow = Math.min(0.005, Math.abs(phaseDelta) * Math.min(secPerBeatA, secPerBeatB));
-      // Apply 60% of the computed timing correction so the decks converge smoothly instead of wobbling.
-      const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * 0.6;
-      engine.setDeckPlaybackRate(targetDeck, correctedRate);
-    }, 5); // Spec: keep the neural phase-correction loop at a 5ms cadence around the centre zone.
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
 
     return () => {
-      window.clearInterval(interval);
+      cancelAnimationFrame(rafId);
       const { deckA, deckB } = useDeckStore.getState();
       engine.setDeckPlaybackRate('A', Math.max(0.5, Math.min(2.0, 1 + deckA.pitchPercent / 100)));
       engine.setDeckPlaybackRate('B', Math.max(0.5, Math.min(2.0, 1 + deckB.pitchPercent / 100)));
@@ -700,7 +712,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         <div
           className={compact ? 'h-7 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'h-8 w-full fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
           ref={crossfaderRef}
-          onMouseDown={handleCrossfaderDown}
+          onPointerDown={handleCrossfaderDown}
           onDoubleClick={handleCrossfaderDoubleClick}
         >
           <div
