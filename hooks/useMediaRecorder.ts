@@ -20,7 +20,7 @@ const formatSetTimestamp = (seconds: number) => {
   const minutes = Math.floor((seconds % 3600) / 60);
   const remainingSeconds = seconds % 60;
   return [hours, minutes, remainingSeconds]
-    .map((value, index) => (index === 0 ? String(value).padStart(2, '0') : String(value).padStart(2, '0')))
+    .map((value) => String(value).padStart(2, '0'))
     .join(':');
 };
 
@@ -117,7 +117,7 @@ export function useMediaRecorder() {
       const setlistLines = [
         'PRO DJ STUDIO SETLIST',
         `Capture: ${ts}`,
-        `Master Tap: ${recordingProfile.signalPath}`,
+        `Master Tap Point: ${recordingProfile.signalPath}`,
         `Render Target: ${Math.round(recordingProfile.sampleRate / 1000)}kHz / ${recordingProfile.bitDepth}-bit`,
         '',
         ...trackEventsRef.current.map((event) => {

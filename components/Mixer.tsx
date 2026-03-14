@@ -25,6 +25,7 @@ const SPARKLINE_HISTORY_SIZE = 8;
 /** Energy levels for sparkline color transitions (green → yellow → red) */
 const SPARKLINE_HIGH_ENERGY = 0.6;
 const SPARKLINE_MID_ENERGY = 0.3;
+const DEFAULT_AI_CRATE_PROMPT = 'Show me tracks for a 124 BPM house set.';
 
 const VUMeter = ({ deckId, compact = false }: { deckId: MeterTarget; compact?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -242,10 +243,11 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     }))
   );
   const { isSupported: isMIDISupported, isConnected: isMIDIConnected, devices: midiDevices, lastMessage } = useMIDIManager();
-  const [cratePrompt, setCratePrompt] = useState('Show me tracks for a 124 BPM house set.');
+  const [cratePrompt, setCratePrompt] = useState(DEFAULT_AI_CRATE_PROMPT);
   const [isMainstage, setIsMainstage] = useState(false);
   const restoreLibraryRef = useRef(false);
   const aiCrate = useMemo(() => buildAICrate(libraryTracks, cratePrompt, { limit: compact ? 3 : 5, vaultOnly: true }), [compact, cratePrompt, libraryTracks]);
+  const recordingProfile = useMemo(() => AudioEngine.getInstance().getRecordingProfile(), []);
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);
@@ -552,7 +554,7 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
             <input
               value={cratePrompt}
               onChange={(event) => setCratePrompt(event.target.value)}
-              placeholder="Show me tracks for a 124 BPM house set."
+              placeholder={DEFAULT_AI_CRATE_PROMPT}
               className="mt-2 w-full rounded-lg border border-studio-gold/20 bg-[#050505] px-3 py-2 text-[11px] text-slate-100 outline-none transition focus:border-studio-gold focus:shadow-[0_0_12px_rgba(255,215,0,0.2)]"
             />
           </div>
@@ -729,7 +731,9 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           <div className="mt-4 w-full rounded-2xl border border-studio-crimson/40 bg-[radial-gradient(circle_at_top,rgba(255,0,60,0.18),rgba(0,0,0,0.92))] px-4 py-5 shadow-[0_0_32px_rgba(255,0,60,0.16)]">
             <div className="mb-4 text-center">
               <p className="text-[9px] uppercase tracking-[0.35em] text-studio-crimson">Mainstage Master</p>
-              <p className="oled-display mt-2 text-sm text-studio-gold">Limiter Tap • 48kHz / 24-bit</p>
+              <p className="oled-display mt-2 text-sm text-studio-gold">
+                Limiter Tap • {Math.round(recordingProfile.sampleRate / 1000)}kHz / {recordingProfile.bitDepth}-bit
+              </p>
             </div>
             <div className="flex items-end justify-center gap-5">
               <VUMeter deckId="Master" compact={compact} />
