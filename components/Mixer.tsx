@@ -9,7 +9,7 @@ import { useTrackCueStore } from '@/store/trackCueStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useUIStore } from '@/store/uiStore';
 import { getCompatibleKeys } from '@/lib/harmonicKeys';
-import { buildSessionState, saveSessionState } from '@/lib/syncManager';
+import { buildSessionState, ensureSessionSync, saveSessionState } from '@/lib/syncManager';
 import { useMIDIManager } from '@/hooks/useMIDIManager';
 import { buildAICrate } from '@/lib/aiCrate';
 import { useShallow } from 'zustand/react/shallow';
@@ -266,6 +266,10 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       ? DEFAULT_RECORDING_PROFILE
       : AudioEngine.getInstance().getRecordingProfile()
   ), []);
+
+  useEffect(() => {
+    ensureSessionSync();
+  }, []);
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);

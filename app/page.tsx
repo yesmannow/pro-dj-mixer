@@ -7,6 +7,7 @@ import { Mixer } from '@/components/Mixer';
 import { Library } from '@/components/Library';
 import { ParallelWaveforms } from '@/components/ParallelWaveforms';
 import { PhraseDisplay } from '@/components/PhraseDisplay';
+import { RemixGrid } from '@/components/RemixGrid';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useShallow } from 'zustand/react/shallow';
@@ -52,6 +53,11 @@ export default function Home() {
     updateCompactViewport();
     mediaQuery.addEventListener('change', updateCompactViewport);
     return () => mediaQuery.removeEventListener('change', updateCompactViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    void navigator.serviceWorker.register('/sw.js');
   }, []);
 
   const compactPanels = useMemo(() => {
@@ -170,6 +176,9 @@ export default function Home() {
                     </div>
                     <div className="p-4">
                       <ParallelWaveforms />
+                    </div>
+                    <div className="border-t border-slate-800/50 p-4">
+                      <RemixGrid />
                     </div>
                   </div>
                 )}

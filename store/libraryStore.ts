@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { db, Track } from '@/lib/db';
+import { broadcastLibraryRefresh } from '@/lib/syncManager';
 import toast from 'react-hot-toast';
 import type { AnalysisRequest, AnalysisResponse } from '@/lib/analysisWorker';
 
@@ -356,6 +357,9 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
 
     set({ isProcessingQueue: false, queueProgress: '' });
+    if (successCount > 0) {
+      broadcastLibraryRefresh();
+    }
     toast.success(`Successfully imported ${successCount} tracks.`);
   },
 
@@ -444,6 +448,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     // Reload to reflect any inserts/backfills
     await get().loadTracks();
+    broadcastLibraryRefresh();
   },
 
   loadPikoVault: async (cloudTracks = PIKO_VAULT_TRACKS) => {
@@ -558,6 +563,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       vaultTotalCount: cloudTracks.length,
     });
     if (successCount > 0) {
+      broadcastLibraryRefresh();
       toast.success(`Imported ${successCount} cloud track${successCount > 1 ? 's' : ''}.`);
     }
   },

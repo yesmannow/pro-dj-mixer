@@ -1,4 +1,4 @@
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import { Archivo_Black, Inter, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import './globals.css'; // Global styles
@@ -23,9 +23,14 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'PRO DJ STUDIO',
   description: 'Virtual DJ Studio',
+  manifest: '/manifest.json',
   icons: {
     icon: '/favicon.ico',
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#00FF00',
 };
 
 export default function RootLayout({children}: {children: React.ReactNode}) {

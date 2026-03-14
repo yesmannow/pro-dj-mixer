@@ -25,6 +25,7 @@ const PendingAnalysis = () => (
 export const Library = memo(function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
+  const [isSyncFlashing, setIsSyncFlashing] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
@@ -219,6 +220,16 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
     return () => window.clearTimeout(timeout);
   }, [holdVaultHud, isVaultSyncActive, vaultReadyCount, vaultTotalCount]);
 
+  useEffect(() => {
+    const handleSyncFeedback = () => {
+      setIsSyncFlashing(true);
+      window.setTimeout(() => setIsSyncFlashing(false), 300);
+    };
+
+    window.addEventListener('pro-dj-sync-feedback', handleSyncFeedback as EventListener);
+    return () => window.removeEventListener('pro-dj-sync-feedback', handleSyncFeedback as EventListener);
+  }, []);
+
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -265,7 +276,8 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
           ? 'h-full min-h-0 w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
           : isPerformanceMode
             ? 'h-[15vh] min-h-[80px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
-            : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
+            : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl',
+        isSyncFlashing && 'border-[#00FF00] shadow-[0_0_0_1px_rgba(0,255,0,0.65),0_0_24px_rgba(0,255,0,0.25)]'
       )}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}

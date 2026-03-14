@@ -27,6 +27,16 @@ const formatSetTimestamp = (seconds: number) => {
     .join(':');
 };
 
+function makeSaturationCurve(amount = 20) {
+  const n = 44100;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; ++i) {
+    const x = (i * 2) / n - 1;
+    curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -162,10 +172,22 @@ export function useMediaRecorder() {
 
     const recorderContext = new RecorderContextCtor({ sampleRate: recordingProfile.sampleRate });
     const sourceNode = recorderContext.createMediaStreamSource(stream);
+    const saturationNode = recorderContext.createWaveShaper();
+    saturationNode.curve = makeSaturationCurve(20);
+    saturationNode.oversample = '4x';
+    const channelSplitter = recorderContext.createChannelSplitter(2);
+    const rightHaasDelay = recorderContext.createDelay(0.018);
+    rightHaasDelay.delayTime.value = 0.018;
+    const channelMerger = recorderContext.createChannelMerger(2);
     const processorNode = recorderContext.createScriptProcessor(4096, 2, 2);
     const monitorGain = recorderContext.createGain();
     monitorGain.gain.value = 0;
-    sourceNode.connect(processorNode);
+    sourceNode.connect(saturationNode);
+    saturationNode.connect(channelSplitter);
+    channelSplitter.connect(channelMerger, 0, 0);
+    channelSplitter.connect(rightHaasDelay, 1);
+    rightHaasDelay.connect(channelMerger, 0, 1);
+    channelMerger.connect(processorNode);
     processorNode.connect(monitorGain);
     monitorGain.connect(recorderContext.destination);
 

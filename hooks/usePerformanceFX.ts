@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { AudioEngine } from '@/lib/audioEngine';
 import type { CuePoint, Track } from '@/lib/db';
+import { broadcastCue } from '@/lib/syncManager';
+import { getCueTrackHash } from '@/store/trackCueStore';
 
 export type PerformancePadMode = 'hot' | 'slip-roll' | 'beat-break';
 
@@ -57,6 +59,14 @@ export function usePerformanceFX({
     const cueTime = currentTime;
     const modeMeta = padMode === 'hot' ? null : MODE_METADATA[padMode];
     await setCue(track, slot, cueTime, 'hot', modeMeta ? { label: modeMeta.label, color: modeMeta.color } : undefined);
+    broadcastCue(getCueTrackHash(track), {
+      slot,
+      time: cueTime,
+      type: 'hot',
+      timestamp: Date.now(),
+      color: modeMeta?.color ?? '#FFD700',
+      name: modeMeta?.label ?? `Cue ${slot}`,
+    });
     return cueTime;
   }, [cuePoints, currentTime, padMode, setCue, track]);
 
