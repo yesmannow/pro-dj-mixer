@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List } from 'lucide-react';
+import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List, Play } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -22,17 +22,117 @@ const PendingAnalysis = () => (
   </span>
 );
 
-export const Library = memo(function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
+const SPARKLINE_STORAGE_PREFIX = 'pro-dj-sparkline-v1:';
+const SPARKLINE_POINT_COUNT = 56;
+const SPARKLINE_ROOT_MARGIN_PX = 120;
+const SPARKLINE_OFFLINE_MAX_SECONDS = 120;
+
+// Key priority: persistent IDs first, metadata+blob fingerprint last. This stays deterministic
+// for cache reuse, even though true byte-level duplicates may share the same fallback key.
+const getSparklineKey = (track: Track) => {
+  const fileSize = track.fileBlob?.size ?? 0;
+  const lastMod = track.fileBlob instanceof File ? track.fileBlob.lastModified : 0;
+  return `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}:${fileSize}:${lastMod}`}`;
+};
+
+const buildSparkline = (samples: Float32Array, points = SPARKLINE_POINT_COUNT) => {
+  if (samples.length === 0) return [];
+  const bucket = Math.max(1, Math.floor(samples.length / points));
+  const peaks: number[] = [];
+  let maxPeak = 0;
+  for (let i = 0; i < points; i += 1) {
+    const start = i * bucket;
+    const end = Math.min(samples.length, start + bucket);
+    let peak = 0;
+    for (let s = start; s < end; s += 1) {
+      const value = Math.abs(samples[s]);
+      if (value > peak) peak = value;
+    }
+    peaks.push(peak);
+    if (peak > maxPeak) maxPeak = peak;
+  }
+  if (maxPeak <= 0) return peaks.map(() => 0);
+  return peaks.map((peak) => Math.min(1, peak / maxPeak));
+};
+
+const SparklineCanvas = memo(function SparklineCanvas({
+  track,
+  fallback,
+  onNeedData,
+  dense,
+}: Readonly<{
+  track: Track;
+  fallback?: number[];
+  onNeedData: (track: Track) => void;
+  dense: boolean;
+}>) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const target = wrapperRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      // Keep the observer warm by ~one sparkline-column width before rows are fully in view.
+      { rootMargin: `${SPARKLINE_ROOT_MARGIN_PX}px 0px`, threshold: 0.05 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    if (!fallback || fallback.length === 0) {
+      onNeedData(track);
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.lineWidth = dense ? 1 : 1.2;
+    ctx.strokeStyle = 'rgba(0,255,140,0.9)';
+    ctx.beginPath();
+    fallback.forEach((value, index) => {
+      const x = (index / Math.max(1, fallback.length - 1)) * width;
+      const y = height - value * (height - 2) - 1;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }, [dense, fallback, isVisible, onNeedData, track]);
+
+  return (
+    <div ref={wrapperRef} className="w-[120px] h-8 rounded border border-slate-800/80 bg-black/30 px-1 py-0.5">
+      <canvas ref={canvasRef} width={112} height={24} className="w-full h-full" />
+    </div>
+  );
+});
+
+export const Library = memo(function Library({ compact = false, expanded = false }: Readonly<{ compact?: boolean; expanded?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [isSyncFlashing, setIsSyncFlashing] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
+  const [sparklineCache, setSparklineCache] = useState<Record<string, number[]>>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const analyzerWorkerRef = useRef<Worker | null>(null);
   // Reuse a single AudioContext for all BPM decode operations (lightweight, non-realtime)
   const decodeAudioCtxRef = useRef<AudioContext | null>(null);
+  const pendingSparklineRef = useRef(new Set<string>());
 
   const {
     tracks,
@@ -206,10 +306,36 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setOpenActionsForTrackId(null);
+      setIsFullscreen(false);
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (compact) return;
+      if (event.code !== 'Space') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      setIsFullscreen((prev) => !prev);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [compact]);
+
+  useEffect(() => {
+    const prefetched: Record<string, number[]> = {};
+    tracks.forEach((track) => {
+      if (Array.isArray(track.overviewWaveform) && track.overviewWaveform.length > 0) {
+        prefetched[getSparklineKey(track)] = track.overviewWaveform;
+      }
+    });
+    if (Object.keys(prefetched).length > 0) {
+      setSparklineCache((prev) => ({ ...prefetched, ...prev }));
+    }
+  }, [tracks]);
 
   useEffect(() => {
     if (isVaultSyncActive || !holdVaultHud) {
@@ -271,16 +397,70 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
 
   const vaultProgress = vaultTotalCount > 0 ? Math.min(100, (vaultReadyCount / vaultTotalCount) * 100) : 0;
   const showVaultHud = isVaultSyncActive || holdVaultHud;
+  const showSidebar = !compact;
+
+  const loadDeckFromRow = useCallback((track: Track, shiftHeld = false) => {
+    const deckId = shiftHeld ? 'B' : 'A';
+    void useDeckStore.getState().loadTrack(deckId, track);
+    toast.success(`Loaded to Deck ${deckId}`);
+  }, []);
+
+  const ensureSparkline = useCallback(async (track: Track) => {
+    const waveform = track.overviewWaveform;
+    const key = getSparklineKey(track);
+    if (waveform && waveform.length > 0) {
+      setSparklineCache((prev) => (prev[key] ? prev : { ...prev, [key]: waveform }));
+      return;
+    }
+    if (sparklineCache[key] || pendingSparklineRef.current.has(key)) return;
+    pendingSparklineRef.current.add(key);
+
+    try {
+      const storageKey = `${SPARKLINE_STORAGE_PREFIX}${key}`;
+      const cached = window.localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as number[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSparklineCache((prev) => ({ ...prev, [key]: parsed }));
+          return;
+        }
+      }
+
+      let arrayBuffer: ArrayBuffer | null = null;
+      if (track.fileBlob) {
+        arrayBuffer = await track.fileBlob.arrayBuffer();
+      } else if (track.audioUrl) {
+        const response = await fetch(track.audioUrl);
+        if (response.ok) {
+          arrayBuffer = await response.arrayBuffer();
+        }
+      }
+      if (!arrayBuffer) return;
+
+      const offlineContext = new OfflineAudioContext(1, 44100 * SPARKLINE_OFFLINE_MAX_SECONDS, 44100);
+      const decoded = await offlineContext.decodeAudioData(arrayBuffer.slice(0));
+      const peaks = buildSparkline(decoded.getChannelData(0));
+      setSparklineCache((prev) => ({ ...prev, [key]: peaks }));
+      window.localStorage.setItem(storageKey, JSON.stringify(peaks));
+    } catch {
+      // Ignore preview waveform failures; table remains interactive.
+    } finally {
+      pendingSparklineRef.current.delete(key);
+    }
+  }, [sparklineCache]);
 
   return (
     <div
       className={clsx(
         'library-container',
+        isFullscreen && !compact && 'fixed inset-0 z-[120] rounded-none border-0',
         compact
           ? 'h-full min-h-0 w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
           : isPerformanceMode
             ? 'h-[15vh] min-h-[80px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
-            : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl',
+            : expanded
+              ? 'h-[60vh] min-h-[420px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
+              : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl',
         isSyncFlashing && 'border-[#00FF00] shadow-[0_0_0_1px_rgba(0,255,0,0.65),0_0_24px_rgba(0,255,0,0.25)]'
       )}
       onDragOver={handleDragOver}
@@ -326,8 +506,8 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
         )}
       </AnimatePresence>
 
-      <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20'}>
-        <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex gap-4 items-center overflow-x-auto no-scrollbar'}>
+      <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center gap-3 bg-slate-900/20'}>
+        <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex flex-wrap gap-3 items-center'}>
           {/* DB Sync LED */}
           <div
             className={clsx(
@@ -348,65 +528,74 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
             />
             DB
           </div>
-          <button
-            onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            ALL TRACKS
-          </button>
-
-          <div className="w-px h-6 bg-slate-800 flex-shrink-0"></div>
-
-          {crates.map(crate => (
-            <div key={crate.id} className="flex items-center gap-1 group/crate flex-shrink-0">
-              <button
-                onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
-                className={clsx(
-                  compact ? 'px-2.5 py-1 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5' : "px-3 py-1 rounded text-sm font-bold transition-colors flex items-center gap-2",
-                  activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
-                )}
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                {crate.name.toUpperCase()}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
-                className="opacity-0 group-hover/crate:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"
-                title="Delete Crate"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+          {showSidebar ? (
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-studio-gold">Action Center</p>
+              <p className="text-[11px] text-slate-500">Tree navigation and high-density browser</p>
             </div>
-          ))}
+          ) : (
+            <>
+              <button
+                onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                ALL TRACKS
+              </button>
 
-          <button
-            onClick={() => setIsCreatingCrate(true)}
-            className={compact ? 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors' : 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors flex-shrink-0'}
-            title="New Crate"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+              <div className="w-px h-6 bg-slate-800 flex-shrink-0"></div>
 
-          <div className="w-px h-6 bg-slate-800 flex-shrink-0 mx-2"></div>
+              {crates.map(crate => (
+                <div key={crate.id} className="flex items-center gap-1 group/crate flex-shrink-0">
+                  <button
+                    onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
+                    className={clsx(
+                      'px-2.5 py-1 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5',
+                      activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    {crate.name.toUpperCase()}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
+                    className="opacity-0 group-hover/crate:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"
+                    title="Delete Crate"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
 
-          <button
-            onClick={() => setActiveTab('cue')}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            CUE
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            HISTORY
-          </button>
+              <button
+                onClick={() => setIsCreatingCrate(true)}
+                className="p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors"
+                title="New Crate"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
 
-          <div className="w-px h-6 bg-slate-800 mx-2 flex-shrink-0"></div>
+              <div className="w-px h-6 bg-slate-800 flex-shrink-0 mx-2"></div>
+
+              <button
+                onClick={() => setActiveTab('cue')}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                PREPARE
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                HISTORY
+              </button>
+
+              <div className="w-px h-6 bg-slate-800 mx-2 flex-shrink-0"></div>
+            </>
+          )}
 
           <button
             onClick={() => setAddMusicModalOpen(true)}
-            className={compact ? 'flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all' : 'flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all flex-shrink-0'}
+            className={compact ? 'flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all' : 'flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all'}
           >
             <span className="text-accent">+</span>
             ADD MUSIC
@@ -466,7 +655,92 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
           </form>
         )}
       </div>
-      <div className="overflow-y-auto flex-1">
+      <div className={clsx('flex-1 min-h-0', showSidebar ? 'grid grid-cols-[minmax(180px,20%)_minmax(0,1fr)]' : 'overflow-y-auto')}>
+        {showSidebar && (
+          <aside className="border-r border-slate-800/70 bg-black/20 p-3">
+            <div className="rounded-xl border border-slate-800/80 bg-black/20 p-2">
+              <div className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Browser Tree</div>
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'tracks' && !activeCrateId ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>ALL TRACKS</span>
+                  <span className="oled-display text-[10px] text-slate-500">{displayTracks.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('history'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'history' ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>HISTORY</span>
+                  <span className="oled-display text-[10px] text-slate-500">{history.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('cue'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'cue' ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>PREPARE</span>
+                  <span className="oled-display text-[10px] text-slate-500">{queueA.length + queueB.length}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-slate-800/80 bg-black/20 p-2">
+              <div className="mb-2 flex items-center justify-between px-2">
+                <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Crates</div>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingCrate(true)}
+                  className="rounded-md border border-slate-700 bg-slate-800/50 p-1 text-slate-400 transition-colors hover:text-accent"
+                  title="New Crate"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                {crates.length === 0 ? (
+                  <div className="px-2 py-2 text-[11px] text-slate-500">No crates yet.</div>
+                ) : crates.map((crate) => (
+                  <div key={crate.id} className="group flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
+                      className={clsx(
+                        'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors',
+                        activeCrateId === crate.id ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                      )}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">{crate.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
+                      className="rounded-md p-1 text-slate-600 opacity-0 transition-all hover:text-red-500 group-hover:opacity-100"
+                      title="Delete Crate"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
+
+        <div className={clsx('min-h-0', showSidebar ? 'overflow-y-auto' : '')}>
         {activeTab === 'history' && (
           <div className="p-4 flex flex-col gap-4">
             <div className="flex items-center justify-between">
@@ -625,6 +899,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                   key={track.id}
                   draggable
                   onDragStart={(e) => handleTrackDragStart(e, track)}
+                  onDoubleClick={(event) => loadDeckFromRow(track, event.shiftKey)}
                   className={clsx(
                     "group cursor-grab active:cursor-grabbing rounded-xl overflow-hidden border border-white/10 bg-slate-900/60 hover:bg-slate-800/60 transition-all",
                     isHarmonicMatch && "shadow-[0_0_12px_rgba(255,215,0,0.4)] border-studio-gold/50"
@@ -673,25 +948,28 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
           <table className="w-full text-left">
             <thead className="bg-slate-900/80 sticky top-0 border-b border-slate-800 z-20">
               <tr>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   #
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Title
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Artist
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   BPM
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Key
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Duration
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold text-right">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold w-[120px]">
+                  Spark
+                </th>
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold text-right">
                   Actions
                 </th>
               </tr>
@@ -700,18 +978,19 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
               {/* Processing Tracks */}
               {processingTracks.map((pt) => (
                 <tr key={`processing-${pt.id}`} className="bg-slate-800/20">
-                  <td className="px-4 py-4 text-sm text-slate-500"><Activity className="w-3.5 h-3.5 text-studio-gold pending-analysis" /></td>
-                  <td className="px-4 py-4 text-sm flex items-center gap-3">
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><Activity className="w-3.5 h-3.5 text-studio-gold pending-analysis" /></td>
+                  <td className="px-3 py-1.5 text-sm flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center border border-slate-700">
                       <Loader2 className="w-4 h-4 text-accent animate-spin" />
                     </div>
                     <span className="font-medium text-slate-400 italic">Analyzing {pt.name}...</span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4"></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5"></td>
                 </tr>
               ))}
 
@@ -734,11 +1013,12 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                     isBlocked && "opacity-20 pointer-events-none",
                     isHarmonicMatch && !isMatch && "shadow-[0_0_8px_rgba(255,215,0,0.3)] border-l-2 border-l-studio-gold/50"
                   )}
+                  onDoubleClick={(event) => loadDeckFromRow(track, event.shiftKey)}
                 >
-                  <td className="px-4 py-4 text-sm text-slate-500 font-mono">
+                  <td className="px-3 py-1.5 text-sm text-slate-500 font-mono">
                     {index + 1}
                   </td>
-                  <td className="px-4 py-4 text-sm flex items-center gap-3">
+                  <td className="px-3 py-1.5 text-sm flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700 overflow-hidden relative">
                       {track.artworkUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -761,11 +1041,11 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
-                  <td className={clsx("px-4 py-4 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>
+                  <td className="px-3 py-1.5 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
+                  <td className={clsx("px-3 py-1.5 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>
                     {(track.id && computedBpms[track.id]) || track.bpm || '--'}
                   </td>
-                  <td className="px-4 py-4 text-sm">
+                  <td className="px-3 py-1.5 text-sm">
                     <span
                       className={clsx(
                         "px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center",
@@ -776,9 +1056,25 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                       {track.key || <PendingAnalysis />}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
-                  <td className="px-4 py-4 text-right relative group/menu">
+                  <td className="px-3 py-1.5 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
+                  <td className="px-3 py-1.5">
+                    <SparklineCanvas
+                      track={track}
+                      fallback={sparklineCache[getSparklineKey(track)] ?? track.overviewWaveform}
+                      onNeedData={ensureSparkline}
+                      dense={expanded}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5 text-right relative group/menu">
                     <div ref={openActionsForTrackId === track.id ? actionsMenuRef : undefined} className="inline-block relative">
+                      <button
+                        type="button"
+                        onClick={() => loadDeckFromRow(track)}
+                        className="mr-1.5 p-1.5 rounded-lg bg-slate-800/40 border border-slate-700 text-slate-400 hover:text-[#00FF00] hover:border-[#00FF00]/70 transition-all duration-200"
+                        title="Load to Deck A"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         type="button"
                         aria-haspopup="menu"
@@ -878,7 +1174,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
               })}
               {tracks.length === 0 && processingTracks.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center gap-2">
                       <UploadCloud className="w-8 h-8 text-slate-600" />
                       <p>No tracks in library. Drag and drop audio files here to analyze.</p>
@@ -889,6 +1185,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
             </tbody>
           </table>
         )}
+        </div>
       </div>
     </div>
   );

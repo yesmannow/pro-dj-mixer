@@ -169,6 +169,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const [isNudgingUp, setIsNudgingUp] = useState(false);
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
+  const [isMonitorCueEnabled, setIsMonitorCueEnabled] = useState(false);
   const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
   const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
   const [deckTheme, setDeckTheme] = useState<DeckTheme>(DEFAULT_DECK_THEME[deckId]);
@@ -183,6 +184,15 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
 
   useEffect(() => {
     void AudioEngine.getInstance().createDeckFxBus(deckId);
+  }, [deckId]);
+
+  useEffect(() => {
+    AudioEngine.getInstance().setDeckCueEnabled(deckId, isMonitorCueEnabled);
+  }, [deckId, isMonitorCueEnabled]);
+
+  useEffect(() => () => {
+    // deckId is stable per Deck instance (A or B), so this cleanup effectively runs on unmount.
+    AudioEngine.getInstance().setDeckCueEnabled(deckId, false);
   }, [deckId]);
 
   useEffect(() => {
@@ -751,16 +761,23 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           <div className={compact ? 'flex flex-wrap items-center justify-center gap-2 w-full' : 'flex flex-wrap items-center justify-center gap-4 w-full'}>
              <MagneticButton
                strength={60}
-               onClick={() => { if (navigator.vibrate) navigator.vibrate(20); }}
+               onClick={() => {
+                 setIsMonitorCueEnabled((prev) => !prev);
+                 if (navigator.vibrate) navigator.vibrate(20);
+               }}
                className={compact ? 'shrink-0 h-9 w-14 rounded-lg bg-[#050505] border-2 text-slate-100 shadow-[0_4px_0_rgba(212,175,55,0.45)] flex flex-col items-center justify-center text-[10px] font-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_rgba(212,175,55,0.45)] touch-none' : 'shrink-0 w-20 h-12 rounded-lg bg-[#050505] border-2 text-slate-100 shadow-[0_6px_0_rgba(212,175,55,0.45)] flex flex-col items-center justify-center font-black tracking-tight transition-all active:translate-y-1 active:shadow-[0_2px_0_rgba(212,175,55,0.45)] touch-none'}
                style={{
-                 borderColor: deckTheme.primary,
-                 color: deckTheme.primary,
-                 boxShadow: compact
-                   ? `0 4px 0 rgba(${deckTheme.primaryRgb},0.45)`
-                   : `0 6px 0 rgba(${deckTheme.primaryRgb},0.45)`,
-               }}
-             >
+                  borderColor: isMonitorCueEnabled ? '#00FF00' : deckTheme.primary,
+                  color: isMonitorCueEnabled ? '#00FF00' : deckTheme.primary,
+                  boxShadow: compact
+                    ? isMonitorCueEnabled
+                      ? '0 4px 0 rgba(0,255,0,0.45), 0 0 12px rgba(0,255,0,0.25)'
+                      : `0 4px 0 rgba(${deckTheme.primaryRgb},0.45)`
+                    : isMonitorCueEnabled
+                      ? '0 6px 0 rgba(0,255,0,0.45), 0 0 12px rgba(0,255,0,0.25)'
+                      : `0 6px 0 rgba(${deckTheme.primaryRgb},0.45)`,
+                }}
+              >
                <span className="text-xs leading-none">CUE</span>
              </MagneticButton>
              <MagneticButton

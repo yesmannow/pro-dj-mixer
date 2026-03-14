@@ -8,10 +8,11 @@ import { Library } from '@/components/Library';
 import { ParallelWaveforms } from '@/components/ParallelWaveforms';
 import { PhraseDisplay } from '@/components/PhraseDisplay';
 import { RemixGrid } from '@/components/RemixGrid';
+import { Layout as PerformanceLayout } from '@/components/Layout';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useShallow } from 'zustand/react/shallow';
-import { ChevronUp, Settings, Zap } from 'lucide-react';
+import { ChevronUp, Settings } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
@@ -20,6 +21,7 @@ import { ViewControls } from '@/components/ViewControls';
 import { CRTTerminal } from '@/components/ui/CRTTerminal';
 
 type CompactPanel = 'deckA' | 'mixer' | 'deckB' | 'library';
+const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
 
 export default function Home() {
   useKeyboardShortcuts();
@@ -45,6 +47,7 @@ export default function Home() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
   const [activeCompactPanel, setActiveCompactPanel] = useState<CompactPanel>('deckA');
+  const [isRemixDrawerOpen, setIsRemixDrawerOpen] = useState(false);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(orientation: landscape) and (max-height: 540px), (max-width: 767px)');
@@ -140,47 +143,26 @@ export default function Home() {
             ) : (
               <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 min-h-0 min-w-0 overflow-x-hidden">
                 {(isWaveformVisible || isPerformanceMode) && (
-                  <div className="bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden flex-shrink-0">
-                    <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
-                      <div className="flex items-center gap-4">
-                        <h2 className="text-sm font-bold text-white tracking-tight">WAVEFORMS</h2>
+                  <PerformanceLayout
+                    isPerformanceMode={isPerformanceMode}
+                    onTogglePerformanceMode={togglePerformanceMode}
+                    isWaveformVisible={isWaveformVisible}
+                    onToggleWaveform={toggleWaveform}
+                    isRemixOpen={isRemixDrawerOpen}
+                    onToggleRemix={() => setIsRemixDrawerOpen((prev) => !prev)}
+                    phraseBadges={(
+                      <>
                         {deckA.isPlaying && deckA.bpm > 0 && (
                           <PhraseDisplay bpm={deckA.bpm} deckId="A" label="A" />
                         )}
                         {deckB.isPlaying && deckB.bpm > 0 && (
                           <PhraseDisplay bpm={deckB.bpm} deckId="B" label="B" />
                         )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={togglePerformanceMode}
-                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${
-                            isPerformanceMode
-                              ? 'bg-studio-crimson text-white shadow-[0_0_12px_rgba(255,0,60,0.4)] border border-studio-crimson'
-                              : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white hover:border-white/20'
-                          }`}
-                          title="Performance Mode"
-                        >
-                          <Zap className="w-3 h-3" />
-                          PERF
-                        </button>
-                        {!isPerformanceMode && (
-                          <button
-                            onClick={toggleWaveform}
-                            className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                          >
-                            <ChevronUp className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <ParallelWaveforms />
-                    </div>
-                    <div className="border-t border-slate-800/50 p-4">
-                      <RemixGrid />
-                    </div>
-                  </div>
+                      </>
+                    )}
+                    waveformContent={<ParallelWaveforms />}
+                    remixContent={<RemixGrid />}
+                  />
                 )}
 
                 <div className="flex-1 w-full max-w-[1920px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.9fr)_minmax(420px,1fr)] gap-6 min-h-0">
@@ -232,7 +214,10 @@ export default function Home() {
                 </div>
 
                 {(isLibraryVisible || isPerformanceMode) && (
-                  <div className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden flex-shrink-0 transition-all duration-300`}>
+                  <div
+                    className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden transition-all duration-300 ${!isRemixDrawerOpen ? 'flex-1 min-h-[48vh]' : 'flex-shrink-0'}`}
+                    style={!isRemixDrawerOpen ? { minHeight: `calc(100vh - ${EXPANDED_LIBRARY_VERTICAL_OFFSET_PX}px)` } : undefined}
+                  >
                     <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
                       <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>
                       {!isPerformanceMode && (
@@ -245,7 +230,7 @@ export default function Home() {
                       )}
                     </div>
                     <div className="p-0">
-                      <Library />
+                      <Library expanded={!isRemixDrawerOpen} />
                     </div>
                   </div>
                 )}
