@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List } from 'lucide-react';
+import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List, Play } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -22,17 +22,109 @@ const PendingAnalysis = () => (
   </span>
 );
 
-export const Library = memo(function Library({ compact = false }: Readonly<{ compact?: boolean }>) {
+const SPARKLINE_STORAGE_PREFIX = 'pro-dj-sparkline-v1:';
+const SPARKLINE_POINT_COUNT = 56;
+
+const getSparklineKey = (track: Track) =>
+  `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}`}`;
+
+const buildSparkline = (samples: Float32Array, points = SPARKLINE_POINT_COUNT) => {
+  if (samples.length === 0) return [];
+  const bucket = Math.max(1, Math.floor(samples.length / points));
+  const peaks: number[] = [];
+  let maxPeak = 0;
+  for (let i = 0; i < points; i += 1) {
+    const start = i * bucket;
+    const end = Math.min(samples.length, start + bucket);
+    let peak = 0;
+    for (let s = start; s < end; s += 1) {
+      const value = Math.abs(samples[s]);
+      if (value > peak) peak = value;
+    }
+    peaks.push(peak);
+    if (peak > maxPeak) maxPeak = peak;
+  }
+  if (maxPeak <= 0) return peaks.map(() => 0);
+  return peaks.map((peak) => Math.min(1, peak / maxPeak));
+};
+
+const SparklineCanvas = memo(function SparklineCanvas({
+  track,
+  fallback,
+  onNeedData,
+  dense,
+}: Readonly<{
+  track: Track;
+  fallback?: number[];
+  onNeedData: (track: Track) => void;
+  dense: boolean;
+}>) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const target = wrapperRef.current;
+    if (!target) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '120px 0px', threshold: 0.05 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    if (!fallback || fallback.length === 0) {
+      onNeedData(track);
+      return;
+    }
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const width = canvas.width;
+    const height = canvas.height;
+    ctx.clearRect(0, 0, width, height);
+    ctx.lineWidth = dense ? 1 : 1.2;
+    ctx.strokeStyle = 'rgba(0,255,140,0.9)';
+    ctx.beginPath();
+    fallback.forEach((value, index) => {
+      const x = (index / Math.max(1, fallback.length - 1)) * width;
+      const y = height - value * (height - 2) - 1;
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }, [dense, fallback, isVisible, onNeedData, track]);
+
+  return (
+    <div ref={wrapperRef} className="w-[120px] h-8 rounded border border-slate-800/80 bg-black/30 px-1 py-0.5">
+      <canvas ref={canvasRef} width={112} height={24} className="w-full h-full" />
+    </div>
+  );
+});
+
+export const Library = memo(function Library({ compact = false, expanded = false }: Readonly<{ compact?: boolean; expanded?: boolean }>) {
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [isSyncFlashing, setIsSyncFlashing] = useState(false);
   const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
+  const [sparklineCache, setSparklineCache] = useState<Record<string, number[]>>({});
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const actionsMenuRef = useRef<HTMLDivElement>(null);
   const analyzerWorkerRef = useRef<Worker | null>(null);
   // Reuse a single AudioContext for all BPM decode operations (lightweight, non-realtime)
   const decodeAudioCtxRef = useRef<AudioContext | null>(null);
+  const pendingSparklineRef = useRef(new Set<string>());
 
   const {
     tracks,
@@ -206,10 +298,36 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setOpenActionsForTrackId(null);
+      setIsFullscreen(false);
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (compact) return;
+      if (event.code !== 'Space') return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) return;
+      event.preventDefault();
+      setIsFullscreen((prev) => !prev);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [compact]);
+
+  useEffect(() => {
+    const prefetched: Record<string, number[]> = {};
+    tracks.forEach((track) => {
+      if (Array.isArray(track.overviewWaveform) && track.overviewWaveform.length > 0) {
+        prefetched[getSparklineKey(track)] = track.overviewWaveform;
+      }
+    });
+    if (Object.keys(prefetched).length > 0) {
+      setSparklineCache((prev) => ({ ...prefetched, ...prev }));
+    }
+  }, [tracks]);
 
   useEffect(() => {
     if (isVaultSyncActive || !holdVaultHud) {
@@ -272,15 +390,68 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
   const vaultProgress = vaultTotalCount > 0 ? Math.min(100, (vaultReadyCount / vaultTotalCount) * 100) : 0;
   const showVaultHud = isVaultSyncActive || holdVaultHud;
 
+  const loadDeckFromRow = useCallback((track: Track, shiftHeld = false) => {
+    const deckId = shiftHeld ? 'B' : 'A';
+    void useDeckStore.getState().loadTrack(deckId, track);
+    toast.success(`Loaded to Deck ${deckId}`);
+  }, []);
+
+  const ensureSparkline = useCallback(async (track: Track) => {
+    const waveform = track.overviewWaveform;
+    const key = getSparklineKey(track);
+    if (waveform && waveform.length > 0) {
+      setSparklineCache((prev) => (prev[key] ? prev : { ...prev, [key]: waveform }));
+      return;
+    }
+    if (sparklineCache[key] || pendingSparklineRef.current.has(key)) return;
+    pendingSparklineRef.current.add(key);
+
+    try {
+      const storageKey = `${SPARKLINE_STORAGE_PREFIX}${key}`;
+      const cached = window.localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached) as number[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setSparklineCache((prev) => ({ ...prev, [key]: parsed }));
+          return;
+        }
+      }
+
+      let arrayBuffer: ArrayBuffer | null = null;
+      if (track.fileBlob) {
+        arrayBuffer = await track.fileBlob.arrayBuffer();
+      } else if (track.audioUrl) {
+        const response = await fetch(track.audioUrl);
+        if (response.ok) {
+          arrayBuffer = await response.arrayBuffer();
+        }
+      }
+      if (!arrayBuffer) return;
+
+      const offlineContext = new OfflineAudioContext(1, 2, 44100);
+      const decoded = await offlineContext.decodeAudioData(arrayBuffer.slice(0));
+      const peaks = buildSparkline(decoded.getChannelData(0));
+      setSparklineCache((prev) => ({ ...prev, [key]: peaks }));
+      window.localStorage.setItem(storageKey, JSON.stringify(peaks));
+    } catch {
+      // Ignore preview waveform failures; table remains interactive.
+    } finally {
+      pendingSparklineRef.current.delete(key);
+    }
+  }, [sparklineCache]);
+
   return (
     <div
       className={clsx(
         'library-container',
+        isFullscreen && !compact && 'fixed inset-0 z-[120] rounded-none border-0',
         compact
           ? 'h-full min-h-0 w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl'
           : isPerformanceMode
             ? 'h-[15vh] min-h-[80px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
-            : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl',
+            : expanded
+              ? 'h-[60vh] min-h-[420px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-all duration-300 shadow-2xl'
+              : 'h-[40vh] min-h-[250px] w-full rounded-xl border border-white/5 flex flex-col overflow-hidden relative transition-colors duration-300 shadow-2xl',
         isSyncFlashing && 'border-[#00FF00] shadow-[0_0_0_1px_rgba(0,255,0,0.65),0_0_24px_rgba(0,255,0,0.25)]'
       )}
       onDragOver={handleDragOver}
@@ -625,6 +796,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                   key={track.id}
                   draggable
                   onDragStart={(e) => handleTrackDragStart(e, track)}
+                  onDoubleClick={(event) => loadDeckFromRow(track, event.shiftKey)}
                   className={clsx(
                     "group cursor-grab active:cursor-grabbing rounded-xl overflow-hidden border border-white/10 bg-slate-900/60 hover:bg-slate-800/60 transition-all",
                     isHarmonicMatch && "shadow-[0_0_12px_rgba(255,215,0,0.4)] border-studio-gold/50"
@@ -673,25 +845,28 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
           <table className="w-full text-left">
             <thead className="bg-slate-900/80 sticky top-0 border-b border-slate-800 z-20">
               <tr>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   #
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Title
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Artist
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   BPM
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Key
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold">
                   Duration
                 </th>
-                <th className="px-4 py-4 text-xs uppercase tracking-wider text-slate-500 font-bold text-right">
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold w-[120px]">
+                  Spark
+                </th>
+                <th className="px-3 py-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-bold text-right">
                   Actions
                 </th>
               </tr>
@@ -700,18 +875,19 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
               {/* Processing Tracks */}
               {processingTracks.map((pt) => (
                 <tr key={`processing-${pt.id}`} className="bg-slate-800/20">
-                  <td className="px-4 py-4 text-sm text-slate-500"><Activity className="w-3.5 h-3.5 text-studio-gold pending-analysis" /></td>
-                  <td className="px-4 py-4 text-sm flex items-center gap-3">
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><Activity className="w-3.5 h-3.5 text-studio-gold pending-analysis" /></td>
+                  <td className="px-3 py-1.5 text-sm flex items-center gap-3">
                     <div className="w-8 h-8 rounded bg-slate-800 flex items-center justify-center border border-slate-700">
                       <Loader2 className="w-4 h-4 text-accent animate-spin" />
                     </div>
                     <span className="font-medium text-slate-400 italic">Analyzing {pt.name}...</span>
                   </td>
-                  <td className="px-6 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4 text-sm text-slate-500"><PendingAnalysis /></td>
-                  <td className="px-4 py-4"></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5 text-sm text-slate-500"><PendingAnalysis /></td>
+                  <td className="px-3 py-1.5"></td>
                 </tr>
               ))}
 
@@ -734,11 +910,12 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                     isBlocked && "opacity-20 pointer-events-none",
                     isHarmonicMatch && !isMatch && "shadow-[0_0_8px_rgba(255,215,0,0.3)] border-l-2 border-l-studio-gold/50"
                   )}
+                  onDoubleClick={(event) => loadDeckFromRow(track, event.shiftKey)}
                 >
-                  <td className="px-4 py-4 text-sm text-slate-500 font-mono">
+                  <td className="px-3 py-1.5 text-sm text-slate-500 font-mono">
                     {index + 1}
                   </td>
-                  <td className="px-4 py-4 text-sm flex items-center gap-3">
+                  <td className="px-3 py-1.5 text-sm flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded bg-slate-900 flex items-center justify-center border border-slate-700 overflow-hidden relative">
                       {track.artworkUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -761,11 +938,11 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                       </span>
                     )}
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
-                  <td className={clsx("px-4 py-4 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>
+                  <td className="px-3 py-1.5 text-sm text-slate-400 truncate max-w-[150px]" title={track.artist}>{track.artist}</td>
+                  <td className={clsx("px-3 py-1.5 text-sm font-mono tabular-nums font-medium", isMatch ? "text-studio-gold" : "text-slate-300")}>
                     {(track.id && computedBpms[track.id]) || track.bpm || '--'}
                   </td>
-                  <td className="px-4 py-4 text-sm">
+                  <td className="px-3 py-1.5 text-sm">
                     <span
                       className={clsx(
                         "px-2 py-0.5 rounded textxs font-bold font-mono tracking-tight cursor-default inline-block min-w-[32px] text-center",
@@ -776,9 +953,25 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                       {track.key || <PendingAnalysis />}
                     </span>
                   </td>
-                  <td className="px-4 py-4 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
-                  <td className="px-4 py-4 text-right relative group/menu">
+                  <td className="px-3 py-1.5 text-sm text-slate-500 font-mono tabular-nums">{track.duration}</td>
+                  <td className="px-3 py-1.5">
+                    <SparklineCanvas
+                      track={track}
+                      fallback={sparklineCache[getSparklineKey(track)] ?? track.overviewWaveform}
+                      onNeedData={ensureSparkline}
+                      dense={expanded}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5 text-right relative group/menu">
                     <div ref={openActionsForTrackId === track.id ? actionsMenuRef : undefined} className="inline-block relative">
+                      <button
+                        type="button"
+                        onClick={() => loadDeckFromRow(track)}
+                        className="mr-1.5 p-1.5 rounded-lg bg-slate-800/40 border border-slate-700 text-slate-400 hover:text-[#00FF00] hover:border-[#00FF00]/70 transition-all duration-200"
+                        title="Load to Deck A"
+                      >
+                        <Play className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         type="button"
                         aria-haspopup="menu"
@@ -878,7 +1071,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
               })}
               {tracks.length === 0 && processingTracks.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center gap-2">
                       <UploadCloud className="w-8 h-8 text-slate-600" />
                       <p>No tracks in library. Drag and drop audio files here to analyze.</p>

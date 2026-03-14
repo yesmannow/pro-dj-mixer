@@ -22,6 +22,12 @@ export class AudioEngine {
   public context: AudioContext;
   public masterGain: GainNode;
   public masterAnalyser: AnalyserNode;
+  public cueGain: GainNode;
+  private cueMonitorGain: GainNode;
+  private masterMonitorGain: GainNode;
+  private masterPanner: StereoPannerNode;
+  private cuePanner: StereoPannerNode;
+  private isSplitMono = true;
   private remixBus: GainNode;
   private limiter: DynamicsCompressorNode;
   private bunkerConvolver: ConvolverNode;
@@ -110,6 +116,7 @@ export class AudioEngine {
     output: GainNode;
     fxOutput: GainNode;
   }>> = {};
+  private deckCueGains: Partial<Record<'A' | 'B', GainNode>> = {};
   private performanceLoops: Record<'A' | 'B', {
     mode: 'slip-roll' | 'beat-break' | null;
     originTime: number;
@@ -150,6 +157,14 @@ export class AudioEngine {
     }
     this.masterGain = this.context.createGain();
     this.masterGain.gain.value = 0.7;
+    this.cueGain = this.context.createGain();
+    this.cueGain.gain.value = 1;
+    this.cueMonitorGain = this.context.createGain();
+    this.cueMonitorGain.gain.value = 1;
+    this.masterMonitorGain = this.context.createGain();
+    this.masterMonitorGain.gain.value = 0;
+    this.masterPanner = this.context.createStereoPanner();
+    this.cuePanner = this.context.createStereoPanner();
     this.remixBus = this.context.createGain();
     this.remixBus.gain.value = 0.72;
 
@@ -185,6 +200,12 @@ export class AudioEngine {
     // coloration while still landing inside the final safety stage.
     this.remixBus.connect(this.limiter);
     this.limiter.connect(this.context.destination);
+    this.masterGain.connect(this.masterMonitorGain);
+    this.masterMonitorGain.connect(this.masterPanner);
+    this.masterPanner.connect(this.context.destination);
+    this.cueGain.connect(this.cueMonitorGain);
+    this.cueMonitorGain.connect(this.cuePanner);
+    this.cuePanner.connect(this.context.destination);
 
     // Recording tap: connect the final post-limiter signal to the MediaStreamDestination
     this.recordingDestination = this.context.createMediaStreamDestination();
@@ -192,6 +213,7 @@ export class AudioEngine {
 
     this.workletReadyPromise = this.ensureAudioWorklets();
     void this.loadBunkerImpulse();
+    this.setSplitMonoEnabled(true);
   }
 
   public static getInstance(): AudioEngine {
@@ -337,6 +359,7 @@ export class AudioEngine {
     const input = this.context.createGain();
     const output = this.context.createGain();
     const fxOutput = this.context.createGain();
+    const cueSend = this.deckCueGains[deckId] ?? this.context.createGain();
 
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
@@ -351,6 +374,7 @@ export class AudioEngine {
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
       gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
     });
+    cueSend.gain.value = 0;
     // Before Phase 7 every stem branch fed the deck FX bus, so deck FX always processed the full deck.
     // Start in that same all-to-FX posture so existing mixes still sound identical until the user
     // deliberately drops specific stems back to the dry path via the new FX Sends controls.
@@ -368,6 +392,7 @@ export class AudioEngine {
     input.connect(drumsGain);
     input.connect(instGain);
     input.connect(vocalsGain);
+    input.connect(cueSend);
 
     drumsGain.connect(drumsDirectGain);
     drumsGain.connect(drumsFxGain);
@@ -382,11 +407,13 @@ export class AudioEngine {
     drumsFxGain.connect(fxOutput);
     instFxGain.connect(fxOutput);
     vocalsFxGain.connect(fxOutput);
+    cueSend.connect(this.cueGain);
 
     this.stemGains[deckId] = { drums: drumsGain, inst: instGain, vocals: vocalsGain };
     this.stemDirectGains[deckId] = { drums: drumsDirectGain, inst: instDirectGain, vocals: vocalsDirectGain };
     this.stemFxGains[deckId] = { drums: drumsFxGain, inst: instFxGain, vocals: vocalsFxGain };
     this.stemChains[deckId] = { input, output, fxOutput };
+    this.deckCueGains[deckId] = cueSend;
 
     return this.stemChains[deckId]!;
   }
@@ -706,6 +733,32 @@ export class AudioEngine {
     deckFxGains[stemType].gain.setTargetAtTime(clamped, now, 0.02);
   }
 
+  public setSplitMonoEnabled(enabled: boolean) {
+    this.isSplitMono = enabled;
+    const now = this.context.currentTime;
+    if (enabled) {
+      this.masterPanner.pan.setValueAtTime(-1, now);
+      this.cuePanner.pan.setValueAtTime(1, now);
+      this.masterMonitorGain.gain.setValueAtTime(1.41, now);
+      this.cueMonitorGain.gain.setValueAtTime(1.41, now);
+      return;
+    }
+    this.masterPanner.pan.setValueAtTime(0, now);
+    this.cuePanner.pan.setValueAtTime(0, now);
+    this.masterMonitorGain.gain.setValueAtTime(0, now);
+    this.cueMonitorGain.gain.setValueAtTime(1, now);
+  }
+
+  public getSplitMonoEnabled() {
+    return this.isSplitMono;
+  }
+
+  public setDeckCueEnabled(deckId: 'A' | 'B', enabled: boolean) {
+    const cueSend = this.deckCueGains[deckId];
+    if (!cueSend) return;
+    cueSend.gain.setTargetAtTime(enabled ? 1 : 0, this.context.currentTime, 0.01);
+  }
+
   public toggleKeyLock(deckId: 'A' | 'B') {
     const deck = this.decks[deckId];
     const enabled = !deck.keyLockEnabled;
@@ -809,6 +862,10 @@ export class AudioEngine {
       stemChain.input.disconnect();
       stemChain.output.disconnect();
       stemChain.fxOutput.disconnect();
+    }
+    const cueSend = this.deckCueGains[deckId];
+    if (cueSend) {
+      cueSend.disconnect();
     }
 
     // Disconnect the per-deck analyser.

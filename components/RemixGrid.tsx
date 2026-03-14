@@ -158,8 +158,8 @@ export function RemixGrid() {
   }, [masterBpm, slots]);
 
   return (
-    <section className="deck-chassis rounded-xl border border-studio-gold/20 p-3 md:p-4 shadow-2xl">
-      <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+    <section className="deck-chassis rounded-xl border border-studio-gold/20 p-2.5 md:p-3 shadow-2xl">
+      <div className="mb-2 flex flex-col gap-1.5 md:flex-row md:items-center md:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.24em] text-studio-gold neon-text-glow">Remix Grid</p>
           <p className="oled-display text-[11px] text-slate-400">
@@ -171,11 +171,11 @@ export function RemixGrid() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {slots.map((slot, slotIndex) => (
           <div
             key={slotIndex}
-            className="rounded-xl border border-studio-gold/15 bg-black/45 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+            className="rounded-xl border border-studio-gold/15 bg-black/45 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
           >
             <div className="mb-3 flex items-center justify-between">
               <span className="oled-display text-[11px] uppercase tracking-[0.2em] text-slate-300">Pad {slotIndex + 1}</span>
@@ -187,7 +187,7 @@ export function RemixGrid() {
               <button
                 type="button"
                 onClick={() => captureSlot(slotIndex)}
-                className="mpc-pad neon-glow min-h-16 border border-studio-gold/30 text-[11px] font-black uppercase tracking-[0.18em] text-studio-gold"
+                className="mpc-pad neon-glow min-h-14 border border-studio-gold/30 text-[10px] font-black uppercase tracking-[0.16em] text-studio-gold"
               >
                 Capture
               </button>
@@ -196,7 +196,7 @@ export function RemixGrid() {
                 disabled={!slot.buffer}
                 onClick={() => (slot.isPlaying ? stopSlot(slotIndex) : triggerSlot(slotIndex))}
                 className={clsx(
-                  'mpc-pad min-h-16 border text-[11px] font-black uppercase tracking-[0.18em] transition-all',
+                  'mpc-pad min-h-14 border text-[10px] font-black uppercase tracking-[0.16em] transition-all',
                   slot.buffer
                     ? slot.isPlaying
                       ? 'mpc-pad-active border-[#00FF00] text-[#00FF00]'
