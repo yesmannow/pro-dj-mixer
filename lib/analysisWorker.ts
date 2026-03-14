@@ -5,6 +5,13 @@ export interface AnalysisRequest {
   duration: number;
 }
 
+export interface DecodeRequest {
+  id: string;
+  type: 'decode';
+  arrayBuffer: ArrayBuffer;
+  sampleRate: number;
+}
+
 export interface AnalysisResponse {
   id: string;
   bpm: number;
@@ -135,21 +142,39 @@ const handleAnalyze = (request: AnalysisRequest): AnalysisResponse => {
 
 const ctx = globalThis as any;
 
-ctx.onmessage = async (event: MessageEvent<AnalysisRequest>) => {
+ctx.onmessage = async (event: MessageEvent<AnalysisRequest | DecodeRequest>) => {
   const request = event.data;
   try {
-    if (!request.channelData || typeof request.sampleRate !== 'number' || typeof request.duration !== 'number') {
+    // Handle decode requests: decode audio in worker via OfflineAudioContext,
+    // then immediately run analysis on the decoded data.
+    if ('type' in request && request.type === 'decode') {
+      const offlineCtx = new OfflineAudioContext(1, 1, request.sampleRate || 44100);
+      const audioBuffer = await offlineCtx.decodeAudioData(request.arrayBuffer);
+      const channelData = audioBuffer.getChannelData(0);
+      const analysisResponse = handleAnalyze({
+        id: request.id,
+        channelData,
+        sampleRate: audioBuffer.sampleRate,
+        duration: audioBuffer.duration,
+      });
+      ctx.postMessage(analysisResponse, [analysisResponse.overviewPeaks.buffer]);
+      return;
+    }
+
+    // Handle standard analysis requests
+    const analysisReq = request as AnalysisRequest;
+    if (!analysisReq.channelData || typeof analysisReq.sampleRate !== 'number' || typeof analysisReq.duration !== 'number') {
       throw new Error('Invalid analysis request: expected channelData, sampleRate, duration.');
     }
 
-    const response = handleAnalyze(request);
+    const response = handleAnalyze(analysisReq);
     ctx.postMessage(response, [response.overviewPeaks.buffer]);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     const response: AnalysisResponse = {
       id: request?.id ?? 'unknown',
       bpm: DEFAULT_BPM,
-      duration: request?.duration ?? 0,
+      duration: ('duration' in request && typeof request.duration === 'number') ? request.duration : 0,
       overviewPeaks: new Float32Array(500),
       error: message,
     };

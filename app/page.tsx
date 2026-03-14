@@ -121,6 +121,12 @@ export default function Home() {
           <div className={isCompactViewport ? 'flex-1 flex flex-col gap-3 px-3 pb-3 pt-14 overflow-hidden min-w-0' : 'flex-1 flex flex-col gap-4 p-4 overflow-hidden min-w-0'}>
             {isCompactViewport ? (
               <>
+                {/* Waveforms fixed at top in stacked mode */}
+                {(isWaveformVisible || isPerformanceMode) && (
+                  <div className="flex-shrink-0">
+                    <ParallelWaveforms compact />
+                  </div>
+                )}
                 <div className="grid grid-cols-4 gap-2 flex-shrink-0">
                   {compactPanels.map((panel) => (
                     <button

@@ -116,6 +116,16 @@ export class AudioEngine {
     output: GainNode;
     fxOutput: GainNode;
   }>> = {};
+  private stemCrossoverFilters: Partial<Record<'A' | 'B', {
+    lowLP1: BiquadFilterNode;
+    lowLP2: BiquadFilterNode;
+    midHP1: BiquadFilterNode;
+    midHP2: BiquadFilterNode;
+    midLP1: BiquadFilterNode;
+    midLP2: BiquadFilterNode;
+    highHP1: BiquadFilterNode;
+    highHP2: BiquadFilterNode;
+  }>> = {};
   private deckCueGains: Partial<Record<'A' | 'B', GainNode>> = {};
   private performanceLoops: Record<'A' | 'B', {
     mode: 'slip-roll' | 'beat-break' | null;
@@ -129,7 +139,6 @@ export class AudioEngine {
     B: { mode: null, originTime: 0, loopStart: 0, loopDuration: 0, startedAtContextTime: 0, wasPlaying: false },
   };
   private static readonly STEM_COUNT = 3;
-  private static readonly STEM_UNITY_CONTRIBUTION = 0.33;
   private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
@@ -371,8 +380,10 @@ export class AudioEngine {
     const instFxGain = this.context.createGain();
     const vocalsFxGain = this.context.createGain();
 
+    // Unity gain per stem — the Linkwitz-Riley crossover handles band isolation;
+    // each stem gain node is now purely for mute/level control.
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
-      gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
+      gainNode.gain.value = 1.0;
     });
     cueSend.gain.value = 0;
     // Before Phase 7 every stem branch fed the deck FX bus, so deck FX always processed the full deck.
@@ -385,13 +396,61 @@ export class AudioEngine {
       gainNode.gain.value = 1;
     });
 
-    // Balance the summed stem path so all three active stems land near unity
-    // (STEM_COUNT × STEM_UNITY_CONTRIBUTION ≈ 1.0, so each active stem contributes one-third),
-    // which keeps the deck input from clipping before EQ, FX, and the master bus.
-    // Wire: input -> [drums | inst | vocals] GainNodes -> [direct + FX send] -> [output + fxOutput]
-    input.connect(drumsGain);
-    input.connect(instGain);
-    input.connect(vocalsGain);
+    // ── Linkwitz-Riley 4th-order crossover (LR4) ──────────────────────────
+    // Two cascaded 2nd-order Butterworth filters per band edge.
+    // Low (drums):  LP @ 250 Hz
+    // Mid (vocals): HP @ 250 Hz + LP @ 4000 Hz
+    // High (inst):  HP @ 4000 Hz
+    const LR_Q = 0.7071; // Butterworth Q for 2nd-order
+    const LOW_FREQ = 250;
+    const HIGH_FREQ = 4000;
+
+    const createLP = (freq: number): BiquadFilterNode => {
+      const f = this.context.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = freq;
+      f.Q.value = LR_Q;
+      return f;
+    };
+    const createHP = (freq: number): BiquadFilterNode => {
+      const f = this.context.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = freq;
+      f.Q.value = LR_Q;
+      return f;
+    };
+
+    // Low band: two cascaded lowpass at 250 Hz
+    const lowLP1 = createLP(LOW_FREQ);
+    const lowLP2 = createLP(LOW_FREQ);
+    // Mid band: two cascaded highpass at 250 Hz → two cascaded lowpass at 4000 Hz
+    const midHP1 = createHP(LOW_FREQ);
+    const midHP2 = createHP(LOW_FREQ);
+    const midLP1 = createLP(HIGH_FREQ);
+    const midLP2 = createLP(HIGH_FREQ);
+    // High band: two cascaded highpass at 4000 Hz
+    const highHP1 = createHP(HIGH_FREQ);
+    const highHP2 = createHP(HIGH_FREQ);
+
+    this.stemCrossoverFilters[deckId] = {
+      lowLP1, lowLP2, midHP1, midHP2, midLP1, midLP2, highHP1, highHP2,
+    };
+
+    // Wire: input → [low crossover → drums gain] + [band crossover → vocals gain] + [high crossover → inst gain]
+    input.connect(lowLP1);
+    lowLP1.connect(lowLP2);
+    lowLP2.connect(drumsGain);
+
+    input.connect(midHP1);
+    midHP1.connect(midHP2);
+    midHP2.connect(midLP1);
+    midLP1.connect(midLP2);
+    midLP2.connect(vocalsGain);
+
+    input.connect(highHP1);
+    highHP1.connect(highHP2);
+    highHP2.connect(instGain);
+
     input.connect(cueSend);
 
     drumsGain.connect(drumsDirectGain);
@@ -483,8 +542,8 @@ export class AudioEngine {
     const output = this.context.createGain();
 
     filter.type = 'lowpass';
-    filter.frequency.value = 18000;
-    filter.Q.value = 0.9;
+    filter.frequency.value = 20000;
+    filter.Q.value = 0.7;
 
     delayNode.delayTime.value = 0.18;
     delayFeedbackGain.gain.value = 0.22;
@@ -534,28 +593,44 @@ export class AudioEngine {
     return bus;
   }
 
-  public setDeckFX(deckId: 'A' | 'B', type: 'filter' | 'echo' | 'crush', value: number) {
+  public setDeckFX(deckId: 'A' | 'B', type: 'filter' | 'echo' | 'crush', value: number, bpm?: number) {
     const fx = this.deckFxBuses[deckId];
     if (!fx) return;
     const now = this.context.currentTime;
     const norm = Math.max(0, Math.min(1, value / 100));
 
     if (type === 'filter') {
-      const min = 180;
-      const max = 18000;
-      const freq = min * Math.pow(max / min, norm);
-      const resonance = 0.7 + norm * 1.2;
-      fx.filter.frequency.setTargetAtTime(freq, now, 0.03);
+      if (Math.abs(value - 50) < 1) {
+        // Neutral: bypass by opening the filter wide
+        fx.filter.type = 'lowpass';
+        fx.filter.frequency.setTargetAtTime(20000, now, 0.03);
+        fx.filter.Q.setTargetAtTime(0.7, now, 0.03);
+        return;
+      }
+      if (value < 50) {
+        // Lowpass sweep down
+        const cutoff = 20000 * Math.pow(0.01, (50 - value) / 50);
+        fx.filter.type = 'lowpass';
+        fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
+      } else {
+        // Highpass sweep up
+        const cutoff = 20 * Math.pow(1000, (value - 50) / 50);
+        fx.filter.type = 'highpass';
+        fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
+      }
+      const resonance = 0.7 + (1 - Math.abs(value - 50) / 50) * 4;
       fx.filter.Q.setTargetAtTime(resonance, now, 0.03);
       return;
     }
 
     if (type === 'echo') {
-      const delayTime = 0.08 + norm * 0.42; // 80ms -> 500ms
+      const safeBpm = (bpm && Number.isFinite(bpm) && bpm > 0) ? bpm : 120;
+      const beatDuration = 60 / safeBpm;
+      const syncDelay = beatDuration * 0.75; // 3/4 beat
       const feedback = Math.min(0.88, 0.12 + norm * 0.65);
       const mix = Math.min(0.85, norm * 0.85);
       const dry = 1 - mix * 0.65;
-      fx.delayNode.delayTime.setTargetAtTime(delayTime, now, 0.03);
+      fx.delayNode.delayTime.setTargetAtTime(syncDelay, now, 0.03);
       fx.delayFeedbackGain.gain.setTargetAtTime(feedback, now, 0.03);
       fx.delayMixGain.gain.setTargetAtTime(mix, now, 0.03);
       fx.dryGain.gain.setTargetAtTime(dry, now, 0.03);
@@ -697,8 +772,7 @@ export class AudioEngine {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
     const clamped = Math.max(0, Math.min(1, level));
-    const target = AudioEngine.STEM_UNITY_CONTRIBUTION * clamped;
-    deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
+    deckStemGains[stemType].gain.setTargetAtTime(clamped, this.context.currentTime, 0.01);
   }
 
   public setStemContribution(
@@ -709,7 +783,7 @@ export class AudioEngine {
   ) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const clamped = Math.max(0, Math.min(AudioEngine.STEM_UNITY_CONTRIBUTION, contribution));
+    const clamped = Math.max(0, Math.min(1, contribution));
     const now = this.context.currentTime;
     const rampSeconds = Math.max(0, options?.rampSeconds ?? 0.01);
     const gain = deckStemGains[stemType].gain;
