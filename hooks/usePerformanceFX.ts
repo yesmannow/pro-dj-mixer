@@ -18,6 +18,8 @@ const MODE_METADATA: Record<Exclude<PerformancePadMode, 'hot'>, { label: string;
   'beat-break': { label: 'Beat Break', color: '#FF003C' },
 };
 
+const getSlipRollBeatFraction = (slot: number) => (slot < 4 ? 0.25 : 0.125);
+
 export function usePerformanceFX({
   deckId,
   track,
@@ -58,13 +60,13 @@ export function usePerformanceFX({
     return cueTime;
   }, [cuePoints, currentTime, padMode, setCue, track]);
 
-  const handleCueTimeHold = useCallback((cueTime: number) => {
+  const handleCueTimeHold = useCallback((cueTime: number, slot?: number) => {
     const engine = AudioEngine.getInstance();
     const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
 
     if (padMode === 'slip-roll') {
       setActiveRoll(true);
-      engine.startSlipRoll(deckId, cueTime, currentTime, safeBpm);
+      engine.startSlipRoll(deckId, cueTime, currentTime, safeBpm, slot === undefined ? 0.25 : getSlipRollBeatFraction(slot));
       return;
     }
 
@@ -96,7 +98,7 @@ export function usePerformanceFX({
   const handlePadHold = useCallback(async (slot: number) => {
     const cueTime = await resolveCueTime(slot);
     if (cueTime === null) return;
-    handleCueTimeHold(cueTime);
+    handleCueTimeHold(cueTime, slot);
   }, [handleCueTimeHold, resolveCueTime]);
 
   const handlePadRelease = useCallback((slot: number) => {

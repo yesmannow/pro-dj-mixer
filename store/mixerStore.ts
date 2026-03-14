@@ -23,7 +23,7 @@ export const useMixerStore = create<MixerState>((set) => ({
   eqB: { high: 0, mid: 0, low: 0 },
   crossfaderCurve: 'blend',
   vaultAmbience: 0.2,
-  setCrossfader: (value) => set({ crossfader: value }),
+  setCrossfader: (value) => set({ crossfader: Math.max(-1, Math.min(1, value)) }),
   setVolume: (deckId, value) => {
     const clamped = Math.max(0, Math.min(1, value));
     set(deckId === 'A' ? { volA: clamped } : { volB: clamped });
