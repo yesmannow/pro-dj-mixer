@@ -191,6 +191,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, [deckId, isMonitorCueEnabled]);
 
   useEffect(() => () => {
+    // deckId is stable per Deck instance (A or B), so this cleanup effectively runs on unmount.
     AudioEngine.getInstance().setDeckCueEnabled(deckId, false);
   }, [deckId]);
 

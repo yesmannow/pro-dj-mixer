@@ -24,9 +24,13 @@ const PendingAnalysis = () => (
 
 const SPARKLINE_STORAGE_PREFIX = 'pro-dj-sparkline-v1:';
 const SPARKLINE_POINT_COUNT = 56;
+const SPARKLINE_ROOT_MARGIN_PX = 120;
+const SPARKLINE_OFFLINE_MAX_SECONDS = 120;
 
+// Key priority: persistent IDs first, metadata+blob fingerprint last. This stays deterministic
+// for cache reuse, even though true byte-level duplicates may share the same fallback key.
 const getSparklineKey = (track: Track) =>
-  `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}`}`;
+  `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}:${track.fileBlob?.size ?? 0}:${track.fileBlob?.lastModified ?? 0}`}`;
 
 const buildSparkline = (samples: Float32Array, points = SPARKLINE_POINT_COUNT) => {
   if (samples.length === 0) return [];
@@ -73,7 +77,8 @@ const SparklineCanvas = memo(function SparklineCanvas({
           observer.disconnect();
         }
       },
-      { rootMargin: '120px 0px', threshold: 0.05 }
+      // Keep the observer warm by ~one sparkline-column width before rows are fully in view.
+      { rootMargin: `${SPARKLINE_ROOT_MARGIN_PX}px 0px`, threshold: 0.05 }
     );
     observer.observe(target);
     return () => observer.disconnect();
@@ -428,7 +433,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
       }
       if (!arrayBuffer) return;
 
-      const offlineContext = new OfflineAudioContext(1, 2, 44100);
+      const offlineContext = new OfflineAudioContext(1, 44100 * SPARKLINE_OFFLINE_MAX_SECONDS, 44100);
       const decoded = await offlineContext.decodeAudioData(arrayBuffer.slice(0));
       const peaks = buildSparkline(decoded.getChannelData(0));
       setSparklineCache((prev) => ({ ...prev, [key]: peaks }));

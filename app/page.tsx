@@ -21,6 +21,7 @@ import { ViewControls } from '@/components/ViewControls';
 import { CRTTerminal } from '@/components/ui/CRTTerminal';
 
 type CompactPanel = 'deckA' | 'mixer' | 'deckB' | 'library';
+const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
 
 export default function Home() {
   useKeyboardShortcuts();
@@ -215,7 +216,7 @@ export default function Home() {
                 {(isLibraryVisible || isPerformanceMode) && (
                   <div
                     className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden transition-all duration-300 ${!isRemixDrawerOpen ? 'flex-1 min-h-[48vh]' : 'flex-shrink-0'}`}
-                    style={!isRemixDrawerOpen ? { minHeight: 'calc(100vh - 420px)' } : undefined}
+                    style={!isRemixDrawerOpen ? { minHeight: `calc(100vh - ${EXPANDED_LIBRARY_VERTICAL_OFFSET_PX}px)` } : undefined}
                   >
                     <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
                       <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>

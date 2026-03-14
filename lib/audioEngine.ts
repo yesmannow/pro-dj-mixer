@@ -162,7 +162,7 @@ export class AudioEngine {
     this.cueMonitorGain = this.context.createGain();
     this.cueMonitorGain.gain.value = 1;
     this.masterMonitorGain = this.context.createGain();
-    this.masterMonitorGain.gain.value = 0;
+    this.masterMonitorGain.gain.value = 1;
     this.masterPanner = this.context.createStereoPanner();
     this.cuePanner = this.context.createStereoPanner();
     this.remixBus = this.context.createGain();
@@ -739,13 +739,15 @@ export class AudioEngine {
     if (enabled) {
       this.masterPanner.pan.setValueAtTime(-1, now);
       this.cuePanner.pan.setValueAtTime(1, now);
+      // Hard-panning mono buses costs ~3 dB of perceived loudness per side, so apply √2 gain
+      // compensation to keep headphone monitoring loudness aligned with the stereo mix.
       this.masterMonitorGain.gain.setValueAtTime(1.41, now);
       this.cueMonitorGain.gain.setValueAtTime(1.41, now);
       return;
     }
     this.masterPanner.pan.setValueAtTime(0, now);
     this.cuePanner.pan.setValueAtTime(0, now);
-    this.masterMonitorGain.gain.setValueAtTime(0, now);
+    this.masterMonitorGain.gain.setValueAtTime(1, now);
     this.cueMonitorGain.gain.setValueAtTime(1, now);
   }
 
