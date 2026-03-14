@@ -649,7 +649,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
                 />
               ) : (
                 <span
-                  className="oled-display font-bold text-slate-100 tabular-nums cursor-pointer hover:text-studio-gold transition-colors"
+                  className="oled-display font-bold text-slate-100 tabular-nums cursor-pointer hover:text-studio-gold transition-colors inline-flex items-center justify-center min-w-[44px] min-h-[44px]"
                   onDoubleClick={() => {
                     if (!track) return;
                     setBpmInputValue(String(bpm));
