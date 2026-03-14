@@ -221,7 +221,8 @@ export const Library = memo(function Library({ compact = false, expanded = false
     void loadLibrary();
     loadCrates();
     loadHistory();
-  }, [fetchLibrary, loadCrates, loadHistory]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Run only once on mount - store actions are stable
 
   // Initialise the analyzer worker (public/workers/analyzer.worker.js)
   useEffect(() => {
