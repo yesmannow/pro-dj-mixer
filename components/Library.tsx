@@ -212,8 +212,11 @@ export const Library = memo(function Library({ compact = false, expanded = false
   useEffect(() => {
     const loadLibrary = async () => {
       setIsLoadingLibrary(true);
-      await fetchLibrary();
-      setIsLoadingLibrary(false);
+      try {
+        await fetchLibrary();
+      } finally {
+        setIsLoadingLibrary(false);
+      }
     };
     void loadLibrary();
     loadCrates();

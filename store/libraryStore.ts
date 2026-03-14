@@ -649,10 +649,15 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   fetchLibrary: async () => {
-    // Load existing tracks from IndexedDB first
-    await get().loadTracks();
-    
-    // Then load/sync vault tracks (merges PIKO_VAULT_TRACKS with manifest)
-    await get().loadPikoVault();
+    try {
+      // Load existing tracks from IndexedDB first
+      await get().loadTracks();
+      
+      // Then load/sync vault tracks (merges PIKO_VAULT_TRACKS with manifest)
+      await get().loadPikoVault();
+    } catch (error) {
+      console.error('Failed to load library:', error);
+      toast.error('Failed to load library. Please refresh the page.');
+    }
   }
 }));
