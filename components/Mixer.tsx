@@ -30,6 +30,8 @@ const PHASE_ALIGNMENT_THRESHOLD = 0.01;
 /** Fraction of the computed timing correction applied per frame (avoids oscillation) */
 const PHASE_CORRECTION_DAMPING = 0.6;
 const DEFAULT_AI_CRATE_PROMPT = 'Show me tracks for a 124 BPM house set.';
+/** Shared className for compact column labels (Deck A / Vol A / Deck B / Vol B). */
+const COMPACT_LABEL_CLS = 'text-[8px] uppercase tracking-[0.28em] text-center';
 const DEFAULT_RECORDING_PROFILE = {
   sampleRate: 48000,
   bitDepth: 24,
@@ -660,6 +662,12 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         </div>
       </div>
       <div className={compact ? 'grid grid-cols-2 gap-3 w-full' : 'grid grid-cols-2 gap-4 w-full'}>
+        {compact && (
+          <>
+            <p className={`${COMPACT_LABEL_CLS} text-studio-gold/70`}>Deck A</p>
+            <p className={`${COMPACT_LABEL_CLS} text-studio-crimson/70`}>Deck B</p>
+          </>
+        )}
         <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} sparklineCanvasRef={sparklineAHighRef} />
           <EQKnob label="Mid" value={eqA.mid} onChange={(val) => setEQ('A', 'mid', val)} sparklineCanvasRef={sparklineAMidRef} />
@@ -705,58 +713,103 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
           </div>
         </div>
       </div>
-      <div className={compact ? 'flex justify-center gap-3 w-full px-1' : 'flex justify-center gap-4 w-full px-2'}>
-        <VUMeter deckId="A" compact={compact} />
-        <div
-          ref={volARef}
-          className={compact ? 'w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
-          onPointerDown={startVolDrag('A')}
-          onDoubleClick={() => setVolume('A', 0.75)}
-        >
+      {compact ? (
+        /* Compact: 2-column symmetrical fader grid, no decorative LED bars */
+        <div className="grid grid-cols-2 gap-3 w-full px-1">
+          <div className="flex flex-col items-center gap-1">
+            <span className={`${COMPACT_LABEL_CLS} text-studio-gold/60`}>Vol A</span>
+            <div className="flex items-center gap-2">
+              <VUMeter deckId="A" compact />
+              <div
+                ref={volARef}
+                className="w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+                onPointerDown={startVolDrag('A')}
+                onDoubleClick={() => setVolume('A', 0.75)}
+              >
+                <div
+                  className="absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+                  style={{ top: volATop, transform: 'translateY(-50%)' }}
+                >
+                  <div className="w-4 h-0.5 bg-studio-black" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            <span className={`${COMPACT_LABEL_CLS} text-studio-crimson/60`}>Vol B</span>
+            <div className="flex items-center gap-2">
+              <div
+                ref={volBRef}
+                className="w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+                onPointerDown={startVolDrag('B')}
+                onDoubleClick={() => setVolume('B', 0.75)}
+              >
+                <div
+                  className="absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+                  style={{ top: volBTop, transform: 'translateY(-50%)' }}
+                >
+                  <div className="w-4 h-0.5 bg-studio-black" />
+                </div>
+              </div>
+              <VUMeter deckId="B" compact />
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Desktop: original layout */
+        <div className="flex justify-center gap-4 w-full px-2">
+          <VUMeter deckId="A" compact={compact} />
           <div
-            className={compact ? 'absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center' : 'absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center'}
-            style={{ top: volATop, transform: 'translateY(-50%)' }}
+            ref={volARef}
+            className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+            onPointerDown={startVolDrag('A')}
+            onDoubleClick={() => setVolume('A', 0.75)}
           >
-            <div className="w-4 h-0.5 bg-studio-black"></div>
+            <div
+              className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+              style={{ top: volATop, transform: 'translateY(-50%)' }}
+            >
+              <div className="w-4 h-0.5 bg-studio-black"></div>
+            </div>
           </div>
-        </div>
-        <div className="flex gap-2">
-          <div className="flex flex-col gap-1 justify-between py-2">
-            <div className="w-1.5 h-1 bg-red-500"></div>
-            <div className="w-1.5 h-1 bg-yellow-500"></div>
-            <div className="w-1.5 h-1 bg-yellow-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
+          <div className="flex gap-2">
+            <div className="flex flex-col gap-1 justify-between py-2">
+              <div className="w-1.5 h-1 bg-red-500"></div>
+              <div className="w-1.5 h-1 bg-yellow-500"></div>
+              <div className="w-1.5 h-1 bg-yellow-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+            </div>
+            <div className="flex flex-col gap-1 justify-between py-2">
+              <div className="w-1.5 h-1 bg-red-500"></div>
+              <div className="w-1.5 h-1 bg-yellow-500"></div>
+              <div className="w-1.5 h-1 bg-yellow-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+              <div className="w-1.5 h-1 bg-green-500"></div>
+            </div>
           </div>
-          <div className="flex flex-col gap-1 justify-between py-2">
-            <div className="w-1.5 h-1 bg-red-500"></div>
-            <div className="w-1.5 h-1 bg-yellow-500"></div>
-            <div className="w-1.5 h-1 bg-yellow-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
-            <div className="w-1.5 h-1 bg-green-500"></div>
+          <div className="flex flex-col items-center gap-2">
+            <div
+              ref={volBRef}
+              className="w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]"
+              onPointerDown={startVolDrag('B')}
+              onDoubleClick={() => setVolume('B', 0.75)}
+            >
+              <div
+                className="absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center"
+                style={{ top: volBTop, transform: 'translateY(-50%)' }}
+              >
+                <div className="w-4 h-0.5 bg-studio-black"></div>
+              </div>
+            </div>
           </div>
+          <VUMeter deckId="B" compact={compact} />
         </div>
-        <div className="flex flex-col items-center gap-2">
-        <div
-          ref={volBRef}
-          className={compact ? 'w-5 h-24 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]' : 'w-6 h-32 fader-track rounded-full border border-studio-gold/30 bg-studio-black relative cursor-pointer shadow-[inset_0_0_12px_rgba(0,0,0,0.6)]'}
-          onPointerDown={startVolDrag('B')}
-          onDoubleClick={() => setVolume('B', 0.75)}
-        >
-          <div
-            className={compact ? 'absolute left-0 right-0 h-6 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center' : 'absolute left-0 right-0 h-8 bg-studio-gold rounded-sm border border-black shadow-[0_0_8px_#D4AF37] cursor-pointer flex items-center justify-center'}
-            style={{ top: volBTop, transform: 'translateY(-50%)' }}
-          >
-            <div className="w-4 h-0.5 bg-studio-black"></div>
-          </div>
-        </div>
-        </div>
-        <VUMeter deckId="B" compact={compact} />
-      </div>
+      )}
       <div className={compact ? 'w-full px-1 mt-auto' : 'w-full px-2 mt-auto'}>
         {/* Mix Opportunity Badge */}
         <div className="flex justify-center mb-2">

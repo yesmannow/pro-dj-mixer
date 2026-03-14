@@ -75,12 +75,14 @@ export default function Home() {
         }>
           {isCompactViewport ? (
             <>
-              {/* Waveforms fixed at top in stacked mode */}
-              {(isWaveformVisible || isPerformanceMode) && (
-                <div className="flex-shrink-0">
-                  <ParallelWaveforms compact />
-                </div>
-              )}
+              {/* Waveforms — smooth collapse via max-h transition.
+                  160px safely exceeds ParallelWaveforms compact max-height (h-24 = 96px). */}
+              <div
+                className="flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
+                style={{ maxHeight: (isWaveformVisible || isPerformanceMode) ? '160px' : '0px' }}
+              >
+                <ParallelWaveforms compact />
+              </div>
 
               <div className={activeTab === 'DECK_A' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
                 {isDeckAVisible && <Deck deckId="A" compact />}
