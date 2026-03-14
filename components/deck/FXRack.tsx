@@ -10,6 +10,7 @@ interface FXRackProps {
   accentRgb?: string;
   secondaryColor?: string;
   onFxChange: (type: FxType, val: number) => void;
+  onStemFxSendChange: (stem: 'vocals' | 'drums' | 'inst', active: boolean) => void;
 }
 
 interface FXKnobProps {
@@ -21,9 +22,10 @@ interface FXKnobProps {
   onKill: () => void;
 }
 
-export function FXRack({ deckId, compact = false, accentColor, accentRgb, secondaryColor, onFxChange }: FXRackProps) {
+export function FXRack({ deckId, compact = false, accentColor, accentRgb, secondaryColor, onFxChange, onStemFxSendChange }: FXRackProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeFx, setActiveFx] = useState({ filter: 50, echo: 0, crush: 0 });
+  const [stemFxTargets, setStemFxTargets] = useState({ vocals: true, drums: true, inst: true });
 
   const updateFx = useCallback((type: FxType, val: number) => {
     const clamped = Math.max(0, Math.min(100, val));
@@ -68,6 +70,38 @@ export function FXRack({ deckId, compact = false, accentColor, accentRgb, second
               <FXKnob label="Wash" value={activeFx.filter} onChange={(v) => updateFx('filter', v)} onKill={() => killFx('filter', 50)} color={accentColor ?? '#D4AF37'} defaultValue={50} />
               <FXKnob label="Echo" value={activeFx.echo} onChange={(v) => updateFx('echo', v)} onKill={() => killFx('echo', 0)} color="#38BDF8" defaultValue={0} />
               <FXKnob label="Crush" value={activeFx.crush} onChange={(v) => updateFx('crush', v)} onKill={() => killFx('crush', 0)} color={secondaryColor ?? '#E11D48'} defaultValue={0} />
+            </div>
+            <div className={compact ? 'px-3 pb-3' : 'px-4 pb-4'}>
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">FX Sends</div>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  ['vocals', 'VOC'],
+                  ['drums', 'DRM'],
+                  ['inst', 'INST'],
+                ] as const).map(([stem, label]) => {
+                  const active = stemFxTargets[stem];
+                  return (
+                    <button
+                      key={stem}
+                      type="button"
+                      onClick={() => {
+                        const nextActive = !active;
+                        setStemFxTargets((prev) => ({ ...prev, [stem]: nextActive }));
+                        onStemFxSendChange(stem, nextActive);
+                      }}
+                      className={`rounded-md border px-2 py-2 text-[10px] font-black tracking-[0.18em] transition-all ${
+                        active ? 'text-studio-black shadow-[0_0_16px_rgba(255,215,0,0.28)]' : 'bg-[#090909] text-slate-400 hover:text-white'
+                      }`}
+                      style={{
+                        borderColor: accentColor ?? '#FFD700',
+                        backgroundColor: active ? accentColor ?? '#FFD700' : '#090909',
+                      }}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </motion.div>
         )}

@@ -10,6 +10,7 @@ import { useLibraryStore } from '@/store/libraryStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { usePerformanceKeys } from '@/hooks/usePerformanceKeys';
+import { usePerformanceFX } from '@/hooks/usePerformanceFX';
 import { useAudioAnalyzer } from '@/hooks/useAudioAnalyzer';
 import { OverviewWaveform } from '@/components/OverviewWaveform';
 import { PerformancePads } from '@/components/deck/PerformancePads';
@@ -212,24 +213,14 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     setSplineStatus('loading');
   }, [splineEnabled]);
 
-  const startStutterFromSlot = useCallback(async (slot: number) => {
-    if (!track) return;
-    const existing = cuePoints.find((c) => c.slot === slot);
-    const cueTime = existing ? existing.time : currentTime;
-
-    if (!existing) {
-      await setCue(track, slot, cueTime, 'hot');
-    }
-
-    AudioEngine.getInstance().startStutter(deckId, cueTime);
-  }, [track, cuePoints, currentTime, deckId, setCue]);
-
-  const stopStutterFromSlot = useCallback((slot: number) => {
-    if (!track) return;
-    const existing = cuePoints.find((c) => c.slot === slot);
-    const cueTime = existing ? existing.time : currentTime;
-    AudioEngine.getInstance().stopStutter(deckId, cueTime);
-  }, [track, cuePoints, currentTime, deckId]);
+  const { padMode, setPadMode, handlePadHold, handlePadRelease, handleCueTimeHold, handleCueTimeRelease } = usePerformanceFX({
+    deckId,
+    track,
+    cuePoints,
+    currentTime,
+    bpm: currentBpm,
+    setCue,
+  });
 
   const clearCueSlot = useCallback(async (slot: number) => {
     if (!track) return;
@@ -238,16 +229,16 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
 
   const { shiftHeld, pressedSlots } = usePerformanceKeys({
     deckId,
-    getCueTime: (slot) => {
-      const existing = cuePoints.find((c) => c.slot === slot);
-      return existing ? existing.time : null;
-    },
-    startStutter: (time) => AudioEngine.getInstance().startStutter(deckId, time),
-    stopStutter: (time) => AudioEngine.getInstance().stopStutter(deckId, time),
-    clearCue: (slot) => {
-      void clearCueSlot(slot);
-    },
-  });
+     getCueTime: (slot) => {
+       const existing = cuePoints.find((c) => c.slot === slot);
+       return existing ? existing.time : null;
+     },
+     startStutter: handleCueTimeHold,
+     stopStutter: handleCueTimeRelease,
+     clearCue: (slot) => {
+       void clearCueSlot(slot);
+     },
+   });
 
   const tapTimesRef = useRef<number[]>([]);
   const jogWheelRef = useRef<HTMLDivElement>(null);
@@ -884,10 +875,12 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
                   compact={compact}
                   accentColor={deckTheme.primary}
                   accentRgb={deckTheme.primaryRgb}
+                  padMode={padMode}
+                  onPadModeChange={setPadMode}
                   onPadHold={(slot) => {
-                    void startStutterFromSlot(slot);
+                    void handlePadHold(slot);
                   }}
-                  onPadRelease={stopStutterFromSlot}
+                  onPadRelease={handlePadRelease}
                   onClearCue={(slot) => {
                     void clearCueSlot(slot);
                   }}
@@ -909,6 +902,7 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
         accentRgb={deckTheme.primaryRgb}
         secondaryColor={deckTheme.secondary}
         onFxChange={(type, val) => AudioEngine.getInstance().setDeckFX(deckId, type, val)}
+        onStemFxSendChange={(stem, active) => AudioEngine.getInstance().setStemFXSend(deckId, stem, active ? 1 : 0)}
       />
     </section>
   );

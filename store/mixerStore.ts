@@ -6,11 +6,11 @@ interface MixerState {
   volB: number; // 0 to 1
   eqA: { high: number; mid: number; low: number }; // -1 to 1
   eqB: { high: number; mid: number; low: number }; // -1 to 1
-  crossfaderCurve: 'blend' | 'cut';
+  crossfaderCurve: 'blend' | 'cut' | 'neural';
   vaultAmbience: number; // 0..1
   setCrossfader: (value: number) => void;
   setVolume: (deckId: 'A' | 'B', value: number) => void;
-  setCrossfaderCurve: (curve: 'blend' | 'cut') => void;
+  setCrossfaderCurve: (curve: 'blend' | 'cut' | 'neural') => void;
   setEQ: (deckId: 'A' | 'B', band: 'high' | 'mid' | 'low', value: number) => void;
   setVaultAmbience: (value: number) => void;
 }

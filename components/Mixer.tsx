@@ -4,8 +4,10 @@ import { useRef, useCallback, useEffect } from 'react';
 import { AudioEngine } from '@/lib/audioEngine';
 import { useMixerStore } from '@/store/mixerStore';
 import { useDeckStore } from '@/store/deckStore';
+import { useTrackCueStore } from '@/store/trackCueStore';
 import { getCompatibleKeys } from '@/lib/harmonicKeys';
 import { MasterMeter } from '@/components/MasterMeter';
+import { buildSessionState, saveSessionState } from '@/lib/syncManager';
 import { useShallow } from 'zustand/react/shallow';
 
 type MeterTarget = 'A' | 'B' | 'Master';
@@ -225,6 +227,27 @@ function MixOpportunityBadge() {
 
 export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, vaultAmbience, setEQ, setVolume, setCrossfader, setCrossfaderCurve, setVaultAmbience } = useMixerStore();
+  const cuesByTrack = useTrackCueStore((state) => state.cuesByTrack);
+  const { deckAState, deckBState } = useDeckStore(useShallow((state) => ({
+    deckAState: {
+      track: state.deckA.track,
+      isPlaying: state.deckA.isPlaying,
+      currentTime: state.deckA.currentTime,
+      pitchPercent: state.deckA.pitchPercent,
+      sync: state.deckA.sync,
+      keyLock: state.deckA.keyLock,
+      stems: state.deckA.stems,
+    },
+    deckBState: {
+      track: state.deckB.track,
+      isPlaying: state.deckB.isPlaying,
+      currentTime: state.deckB.currentTime,
+      pitchPercent: state.deckB.pitchPercent,
+      sync: state.deckB.sync,
+      keyLock: state.deckB.keyLock,
+      stems: state.deckB.stems,
+    },
+  })));
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);
@@ -428,6 +451,68 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
     AudioEngine.getInstance().setVaultAmbience(vaultAmbience);
   }, [vaultAmbience]);
 
+  useEffect(() => {
+    if (crossfaderCurve !== 'neural') {
+      return undefined;
+    }
+
+    const engine = AudioEngine.getInstance();
+    const interval = window.setInterval(() => {
+      const { deckA, deckB } = useDeckStore.getState();
+      const bpmA = Number(deckA.track?.bpm);
+      const bpmB = Number(deckB.track?.bpm);
+      if (!deckA.isPlaying || !deckB.isPlaying || !Number.isFinite(bpmA) || !Number.isFinite(bpmB) || bpmA <= 0 || bpmB <= 0) {
+        return;
+      }
+
+      const secPerBeatA = 60 / bpmA;
+      const secPerBeatB = 60 / bpmB;
+      const phaseA = ((deckA.currentTime / secPerBeatA) % 1 + 1) % 1;
+      const phaseB = ((deckB.currentTime / secPerBeatB) % 1 + 1) % 1;
+      let phaseDelta = phaseB - phaseA;
+      if (phaseDelta > 0.5) phaseDelta -= 1;
+      if (phaseDelta < -0.5) phaseDelta += 1;
+      if (Math.abs(phaseDelta) < 0.01) return;
+
+      const targetDeck = crossfader <= 0 ? 'B' : 'A';
+      const targetState = targetDeck === 'A' ? deckA : deckB;
+      const baseRate = Math.max(0.5, Math.min(2.0, 1 + targetState.pitchPercent / 100));
+      const correctionWindow = Math.min(0.005, Math.abs(phaseDelta) * Math.min(secPerBeatA, secPerBeatB));
+      const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * 0.6;
+      engine.setDeckPlaybackRate(targetDeck, correctedRate);
+    }, 5);
+
+    return () => {
+      window.clearInterval(interval);
+      const { deckA, deckB } = useDeckStore.getState();
+      engine.setDeckPlaybackRate('A', Math.max(0.5, Math.min(2.0, 1 + deckA.pitchPercent / 100)));
+      engine.setDeckPlaybackRate('B', Math.max(0.5, Math.min(2.0, 1 + deckB.pitchPercent / 100)));
+    };
+  }, [crossfader, crossfaderCurve]);
+
+  useEffect(() => {
+    const saveTimer = window.setTimeout(() => {
+      saveSessionState(buildSessionState({
+        deckA: deckAState,
+        deckB: deckBState,
+        mixer: {
+          crossfader,
+          crossfaderCurve,
+          vaultAmbience,
+          volumes: {
+            A: volA,
+            B: volB,
+          },
+        },
+        cuesByTrack,
+      }));
+    }, 120);
+
+    return () => {
+      window.clearTimeout(saveTimer);
+    };
+  }, [crossfader, crossfaderCurve, cuesByTrack, deckAState, deckBState, vaultAmbience, volA, volB]);
+
   // Map crossfader value (-1 to 1) to left percentage (0% to 100%)
   const crossfaderLeft = `${((crossfader + 1) / 2) * 100}%`;
 
@@ -550,9 +635,19 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
             >
               Cut
             </button>
+            <button
+              className={`px-2 py-0.5 rounded-full font-semibold tracking-wide ${
+                crossfaderCurve === 'neural'
+                  ? 'bg-studio-crimson text-white shadow-[0_0_12px_#FF003C]'
+                  : 'text-slate-300 hover:text-slate-100'
+              }`}
+              onClick={() => setCrossfaderCurve('neural')}
+            >
+              Neural
+            </button>
           </div>
           <p className="text-[8px] uppercase tracking-widest text-center text-slate-500">
-            Crossfader ({crossfaderCurve === 'blend' ? 'Equal Power' : 'Scratch Cut'})
+            Crossfader ({crossfaderCurve === 'blend' ? 'Equal Power' : crossfaderCurve === 'cut' ? 'Scratch Cut' : 'Smart Fade'})
           </p>
         </div>
         <div className="mt-5 w-full flex items-center gap-3">

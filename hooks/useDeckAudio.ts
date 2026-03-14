@@ -22,6 +22,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       isLoading: deck.isLoading,
       volume: deck.volume,
       pitchPercent: deck.pitchPercent,
+      stems: deck.stems,
     };
   }));
   const togglePlay = useDeckStore((state) => state.togglePlay);
@@ -69,6 +70,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
         isPlaying: deckState.isPlaying,
         playbackRate: basePlaybackRate,
         pauseTime: pauseTimeRef.current,
+        currentTime: currentTimeRef.current,
       onSourceSwap: (next) => {
         sourceRef.current = next;
         lastContextTimeRef.current = engine.context.currentTime;
@@ -107,8 +109,9 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
       deckGainRef.current = fxBusRef.current.deckGain;
 
-      // Connect source -> stem crossover -> FX bus -> EQ -> analyser -> destination
-      stemChainRef.current.output.connect(fxBusRef.current.input);
+      // Connect source -> stem routing -> [direct + FX send] -> EQ/analyser/master
+      stemChainRef.current.output.connect(eqChainRef.current.input);
+      stemChainRef.current.fxOutput.connect(fxBusRef.current.input);
       fxBusRef.current.output.connect(eqChainRef.current.input);
       eqChainRef.current.output.connect(analyserRef.current);
       analyserRef.current.connect(engine.masterGain);
@@ -126,9 +129,24 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       }
 
       if (eqChainRef.current) {
+        const neuralPosition = (crossfader + 1) / 2;
+        const neuralLowTrim =
+          crossfaderCurve === 'neural'
+            ? deckId === 'A'
+              ? Math.max(0, (neuralPosition - 0.6) / 0.4)
+              : Math.max(0, (0.4 - neuralPosition) / 0.4)
+            : 0;
+        const vocalBlend =
+          crossfaderCurve === 'neural' && deckId === 'A'
+            ? 1 - Math.max(0, Math.min(1, neuralPosition / 0.4))
+            : 1;
+        engine.setStemLevel(deckId, 'vocals', deckState.stems.vocals ? vocalBlend : 0);
+        engine.setStemLevel(deckId, 'drums', deckState.stems.drums ? 1 : 0);
+        engine.setStemLevel(deckId, 'inst', deckState.stems.inst ? 1 : 0);
+
         const mapEQ = (val: number) => val < 0 ? val * 24 : val * 6;
         const now = engine.context.currentTime;
-        eqChainRef.current.low.gain.setTargetAtTime(mapEQ(eqState.low), now, 0.02);
+        eqChainRef.current.low.gain.setTargetAtTime(Math.max(-24, mapEQ(eqState.low) - neuralLowTrim * 18), now, 0.02);
         eqChainRef.current.mid.gain.setTargetAtTime(mapEQ(eqState.mid), now, 0.02);
         eqChainRef.current.high.gain.setTargetAtTime(mapEQ(eqState.high), now, 0.02);
       }
@@ -136,7 +154,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     return () => {
       cancelled = true;
     };
-  }, [deckState.volume, crossfader, crossfaderCurve, eqState, deckId, syncRuntime]);
+  }, [deckId, deckState.stems, deckState.volume, crossfader, crossfaderCurve, eqState, syncRuntime]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
