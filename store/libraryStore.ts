@@ -122,6 +122,7 @@ interface LibraryState {
   seedLibrary: () => Promise<void>;
   queueFilesForIngestion: (files: File[]) => Promise<void>;
   loadPikoVault: (cloudTracks?: ReadonlyArray<VaultTrack>) => Promise<void>;
+  fetchLibrary: () => Promise<void>;
 }
 
 const mockAnalysis = async (file: File | string) => {
@@ -645,5 +646,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     if (duplicateInState) return;
 
     await get().queueFilesForIngestion([file]);
+  },
+
+  fetchLibrary: async () => {
+    // Load existing tracks from IndexedDB first
+    await get().loadTracks();
+    
+    // Then load/sync vault tracks (merges PIKO_VAULT_TRACKS with manifest)
+    await get().loadPikoVault();
   }
 }));
