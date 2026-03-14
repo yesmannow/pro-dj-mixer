@@ -29,8 +29,11 @@ const SPARKLINE_OFFLINE_MAX_SECONDS = 120;
 
 // Key priority: persistent IDs first, metadata+blob fingerprint last. This stays deterministic
 // for cache reuse, even though true byte-level duplicates may share the same fallback key.
-const getSparklineKey = (track: Track) =>
-  `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}:${track.fileBlob?.size ?? 0}:${track.fileBlob?.lastModified ?? 0}`}`;
+const getSparklineKey = (track: Track) => {
+  const fileSize = track.fileBlob?.size ?? 0;
+  const lastMod = track.fileBlob instanceof File ? track.fileBlob.lastModified : 0;
+  return `${track.id ?? track.sourceId ?? track.audioUrl ?? `${track.title}:${track.artist}:${fileSize}:${lastMod}`}`;
+};
 
 const buildSparkline = (samples: Float32Array, points = SPARKLINE_POINT_COUNT) => {
   if (samples.length === 0) return [];
@@ -394,6 +397,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
 
   const vaultProgress = vaultTotalCount > 0 ? Math.min(100, (vaultReadyCount / vaultTotalCount) * 100) : 0;
   const showVaultHud = isVaultSyncActive || holdVaultHud;
+  const showSidebar = !compact;
 
   const loadDeckFromRow = useCallback((track: Track, shiftHeld = false) => {
     const deckId = shiftHeld ? 'B' : 'A';
@@ -502,8 +506,8 @@ export const Library = memo(function Library({ compact = false, expanded = false
         )}
       </AnimatePresence>
 
-      <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/20'}>
-        <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex gap-4 items-center overflow-x-auto no-scrollbar'}>
+      <div className={compact ? 'p-3 border-b border-slate-800 flex flex-col gap-3 bg-slate-900/20' : 'p-4 border-b border-slate-800 flex justify-between items-center gap-3 bg-slate-900/20'}>
+        <div className={compact ? 'flex flex-wrap gap-2 items-center' : 'flex flex-wrap gap-3 items-center'}>
           {/* DB Sync LED */}
           <div
             className={clsx(
@@ -524,65 +528,74 @@ export const Library = memo(function Library({ compact = false, expanded = false
             />
             DB
           </div>
-          <button
-            onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            ALL TRACKS
-          </button>
-
-          <div className="w-px h-6 bg-slate-800 flex-shrink-0"></div>
-
-          {crates.map(crate => (
-            <div key={crate.id} className="flex items-center gap-1 group/crate flex-shrink-0">
-              <button
-                onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
-                className={clsx(
-                  compact ? 'px-2.5 py-1 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5' : "px-3 py-1 rounded text-sm font-bold transition-colors flex items-center gap-2",
-                  activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
-                )}
-              >
-                <FolderOpen className="w-3.5 h-3.5" />
-                {crate.name.toUpperCase()}
-              </button>
-              <button
-                onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
-                className="opacity-0 group-hover/crate:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"
-                title="Delete Crate"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+          {showSidebar ? (
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.28em] text-studio-gold">Action Center</p>
+              <p className="text-[11px] text-slate-500">Tree navigation and high-density browser</p>
             </div>
-          ))}
+          ) : (
+            <>
+              <button
+                onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'tracks' && !activeCrateId ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                ALL TRACKS
+              </button>
 
-          <button
-            onClick={() => setIsCreatingCrate(true)}
-            className={compact ? 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors' : 'p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors flex-shrink-0'}
-            title="New Crate"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+              <div className="w-px h-6 bg-slate-800 flex-shrink-0"></div>
 
-          <div className="w-px h-6 bg-slate-800 flex-shrink-0 mx-2"></div>
+              {crates.map(crate => (
+                <div key={crate.id} className="flex items-center gap-1 group/crate flex-shrink-0">
+                  <button
+                    onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
+                    className={clsx(
+                      'px-2.5 py-1 rounded text-[11px] font-bold transition-colors flex items-center gap-1.5',
+                      activeCrateId === crate.id ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    <FolderOpen className="w-3.5 h-3.5" />
+                    {crate.name.toUpperCase()}
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
+                    className="opacity-0 group-hover/crate:opacity-100 p-1 text-slate-600 hover:text-red-500 transition-all"
+                    title="Delete Crate"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
 
-          <button
-            onClick={() => setActiveTab('cue')}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            CUE
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={clsx(compact ? 'px-3 py-1 rounded text-[11px] font-bold transition-colors' : 'px-4 py-1 rounded text-sm font-bold transition-colors flex-shrink-0', activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
-          >
-            HISTORY
-          </button>
+              <button
+                onClick={() => setIsCreatingCrate(true)}
+                className="p-1.5 rounded bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent transition-colors"
+                title="New Crate"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
 
-          <div className="w-px h-6 bg-slate-800 mx-2 flex-shrink-0"></div>
+              <div className="w-px h-6 bg-slate-800 flex-shrink-0 mx-2"></div>
+
+              <button
+                onClick={() => setActiveTab('cue')}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'cue' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                PREPARE
+              </button>
+              <button
+                onClick={() => setActiveTab('history')}
+                className={clsx('px-3 py-1 rounded text-[11px] font-bold transition-colors', activeTab === 'history' ? "bg-slate-800 text-accent" : "text-slate-400 hover:text-white")}
+              >
+                HISTORY
+              </button>
+
+              <div className="w-px h-6 bg-slate-800 mx-2 flex-shrink-0"></div>
+            </>
+          )}
 
           <button
             onClick={() => setAddMusicModalOpen(true)}
-            className={compact ? 'flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all' : 'flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all flex-shrink-0'}
+            className={compact ? 'flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[10px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all' : 'flex items-center gap-2 px-4 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-full text-[11px] font-bold text-white/90 backdrop-blur-md shadow-lg transition-all'}
           >
             <span className="text-accent">+</span>
             ADD MUSIC
@@ -642,7 +655,92 @@ export const Library = memo(function Library({ compact = false, expanded = false
           </form>
         )}
       </div>
-      <div className="overflow-y-auto flex-1">
+      <div className={clsx('flex-1 min-h-0', showSidebar ? 'grid grid-cols-[minmax(180px,20%)_minmax(0,1fr)]' : 'overflow-y-auto')}>
+        {showSidebar && (
+          <aside className="border-r border-slate-800/70 bg-black/20 p-3">
+            <div className="rounded-xl border border-slate-800/80 bg-black/20 p-2">
+              <div className="mb-2 px-2 text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Browser Tree</div>
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('tracks'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'tracks' && !activeCrateId ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>ALL TRACKS</span>
+                  <span className="oled-display text-[10px] text-slate-500">{displayTracks.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('history'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'history' ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>HISTORY</span>
+                  <span className="oled-display text-[10px] text-slate-500">{history.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setActiveTab('cue'); setActiveCrate(null); }}
+                  className={clsx(
+                    'flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.14em] transition-colors',
+                    activeTab === 'cue' ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                  )}
+                >
+                  <span>PREPARE</span>
+                  <span className="oled-display text-[10px] text-slate-500">{queueA.length + queueB.length}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-xl border border-slate-800/80 bg-black/20 p-2">
+              <div className="mb-2 flex items-center justify-between px-2">
+                <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-500">Crates</div>
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingCrate(true)}
+                  className="rounded-md border border-slate-700 bg-slate-800/50 p-1 text-slate-400 transition-colors hover:text-accent"
+                  title="New Crate"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                {crates.length === 0 ? (
+                  <div className="px-2 py-2 text-[11px] text-slate-500">No crates yet.</div>
+                ) : crates.map((crate) => (
+                  <div key={crate.id} className="group flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => { setActiveTab('tracks'); setActiveCrate(crate.id!); }}
+                      className={clsx(
+                        'flex min-w-0 flex-1 items-center gap-2 rounded-lg px-3 py-2 text-left text-[11px] font-medium transition-colors',
+                        activeCrateId === crate.id ? 'bg-studio-gold/15 text-studio-gold border border-studio-gold/30' : 'text-slate-300 hover:bg-white/5'
+                      )}
+                    >
+                      <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" />
+                      <span className="truncate">{crate.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); if (crate.id) deleteCrate(crate.id); }}
+                      className="rounded-md p-1 text-slate-600 opacity-0 transition-all hover:text-red-500 group-hover:opacity-100"
+                      title="Delete Crate"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </aside>
+        )}
+
+        <div className={clsx('min-h-0', showSidebar ? 'overflow-y-auto' : '')}>
         {activeTab === 'history' && (
           <div className="p-4 flex flex-col gap-4">
             <div className="flex items-center justify-between">
@@ -1087,6 +1185,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
             </tbody>
           </table>
         )}
+        </div>
       </div>
     </div>
   );
