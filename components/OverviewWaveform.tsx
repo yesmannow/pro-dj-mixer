@@ -19,7 +19,7 @@ export function OverviewWaveform({
   duration,
   currentTime,
   track,
-  accentColor,
+  accentColor: _accentColor,
   compact = false,
   onScrubTo,
 }: OverviewWaveformProps) {
@@ -74,22 +74,44 @@ export function OverviewWaveform({
 
     const midY = size.height / 2;
     const amp = size.height * 0.45;
-    const step = peaks.length > 0 ? size.width / peaks.length : size.width;
+    const barWidth = Math.max(1, size.width / peaks.length);
 
-    ctx.beginPath();
-    ctx.strokeStyle = accentColor;
-    ctx.lineWidth = 1.5;
+    // Amplitude-based colour mapping (Serato/Traktor style):
+    // quiet → cool blues/cyans, mid → greens/yellows, loud → oranges/reds
+    const getAmplitudeColor = (a: number): string => {
+      if (a < 0.15) return `rgba(30, 100, 220, ${0.4 + a * 3})`;
+      if (a < 0.30) {
+        const t = (a - 0.15) / 0.15;
+        return `rgba(${30 + t * 20}, ${100 + t * 160}, ${220 + t * 35}, 0.85)`;
+      }
+      if (a < 0.50) {
+        const t = (a - 0.30) / 0.20;
+        return `rgba(${50 + t * 150}, ${260 - t * 30 | 0}, ${255 - t * 200}, 0.9)`;
+      }
+      if (a < 0.70) {
+        const t = (a - 0.50) / 0.20;
+        return `rgba(${200 + t * 55}, ${230 - t * 80}, ${55 - t * 55}, 0.92)`;
+      }
+      const t = Math.min(1, (a - 0.70) / 0.30);
+      return `rgba(255, ${150 - t * 150}, ${0 + t * 20}, ${0.92 + t * 0.08})`;
+    };
+
+    // Bottom reflection is scaled to 60 % of the top bar height for the
+    // characteristic Serato/Traktor "reflection fade" look.
+    const BOTTOM_BAR_SCALE = 0.6;
 
     for (let i = 0; i < peaks.length; i++) {
-      const x = i * step;
+      const x = i * barWidth;
       const val = Math.max(-1, Math.min(1, peaks[i] ?? 0));
-      const y = midY - val * amp;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
+      const absVal = Math.abs(val);
+      const barHeight = absVal * amp;
 
-    ctx.stroke();
-  }, [peaks, size.width, size.height, accentColor]);
+      ctx.fillStyle = getAmplitudeColor(absVal);
+      // Mirror bars above and below the centre line
+      ctx.fillRect(x, midY - barHeight, barWidth, barHeight);
+      ctx.fillRect(x, midY, barWidth, barHeight * BOTTOM_BAR_SCALE);
+    }
+  }, [peaks, size.width, size.height]);
 
   // Render cue markers on top of the waveform
   useEffect(() => {
