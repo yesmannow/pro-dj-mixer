@@ -2,8 +2,7 @@
 
 import { Play } from 'lucide-react';
 import { clsx } from 'clsx';
-import { Component, useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo, type ReactNode } from 'react';
-import Spline from '@splinetool/react-spline';
+import { useState, useCallback, DragEvent, useRef, useEffect, useId, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -26,33 +25,8 @@ interface DeckProps {
   compact?: boolean;
 }
 
-const SPLINE_SCENE_URL = 'https://prod.spline.design/NuXDSBxPTsCkXbkq/scene.splinecode';
-const SPLINE_LOAD_TIMEOUT_MS = 4000;
 /** Seconds for one full platter revolution at 1× (normal) playback speed (33⅓ RPM ≈ 1.8 s/rev) */
 const PLATTER_REVOLUTION_SECONDS = 1.8;
-
-class SplineErrorBoundary extends Component<
-  { children: ReactNode; onError: () => void },
-  { hasError: boolean }
-> {
-  state = { hasError: false };
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  componentDidCatch() {
-    this.props.onError();
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return null;
-    }
-
-    return this.props.children;
-  }
-}
 
 const isTrackPayload = (value: unknown): value is Track => {
   if (typeof value !== 'object' || value === null) return false;
@@ -170,8 +144,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const [isNudgingDown, setIsNudgingDown] = useState(false);
   const [isPerformanceOpen, setIsPerformanceOpen] = useState(false);
   const [isMonitorCueEnabled, setIsMonitorCueEnabled] = useState(false);
-  const splineEnabled = !compact && process.env.NEXT_PUBLIC_ENABLE_SPLINE === 'true';
-  const [splineStatus, setSplineStatus] = useState<'loading' | 'ready' | 'fallback'>(splineEnabled ? 'loading' : 'fallback');
   const [deckTheme, setDeckTheme] = useState<DeckTheme>(DEFAULT_DECK_THEME[deckId]);
 
   const cuePoints = useMemo(() => (track ? getCues(track) : []), [getCues, track]);
@@ -201,28 +173,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     });
     return () => cancelAnimationFrame(frame);
   }, [track?.id]);
-
-  useEffect(() => {
-    if (!splineEnabled || splineStatus !== 'loading') {
-      return undefined;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSplineStatus((current) => (current === 'loading' ? 'fallback' : current));
-    }, SPLINE_LOAD_TIMEOUT_MS);
-
-    return () => window.clearTimeout(timeoutId);
-  }, [splineEnabled, splineStatus]);
-
-  useEffect(() => {
-    if (!splineEnabled) {
-      platterNodeRef.current = null;
-      setSplineStatus('fallback');
-      return;
-    }
-
-    setSplineStatus('loading');
-  }, [splineEnabled]);
 
   const { padMode, setPadMode, handlePadHold, handlePadRelease, handleCueTimeHold, handleCueTimeRelease } = usePerformanceFX({
     deckId,
@@ -266,7 +216,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const isDraggingRef = useRef(false);
   const lastMoveTimeRef = useRef<number>(0);
   const lastDeltaRef = useRef<number>(0);
-  const platterNodeRef = useRef<any>(null);
   const fallbackPlatterRef = useRef<HTMLDivElement>(null);
   const currentTimeRef = useRef(currentTime);
   const scratchOffsetRef = useRef(0);
@@ -525,11 +474,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
       const audioDegrees = (currentTimeRef.current / PLATTER_REVOLUTION_SECONDS) * 360;
       const jitterDegrees = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.12 : 0;
       const totalDegrees = audioDegrees + scratchOffsetRef.current + jitterDegrees;
-      const baseRadians = -(totalDegrees * (Math.PI / 180));
-      const node = platterNodeRef.current;
-      if (node) {
-        node.rotation.y = baseRadians;
-      }
       const fallback = fallbackPlatterRef.current;
       if (fallback) {
         fallback.style.transform = `rotate(${totalDegrees}deg)`;
@@ -553,31 +497,9 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     ? 'text-slate-900'
     : 'bg-studio-slate border-studio-gold/30 text-slate-300';
 
-  const handleSplineLoad = (spline: any) => {
-    const nextPlatterNode =
-      spline?.findObjectByName?.('Platter') ??
-      spline?.findObjectByName?.('Disk') ??
-      spline?.children?.[0] ??
-      null;
-    // eslint-disable-next-line react-hooks/immutability -- imperative Spline runtime object
-    platterNodeRef.current = nextPlatterNode;
-    setSplineStatus('ready');
-    if (nextPlatterNode) {
-      const radians = ((currentTime / PLATTER_REVOLUTION_SECONDS) * 360 + scratchOffsetRef.current) * (Math.PI / 180);
-      nextPlatterNode.rotation.y = radians;
-    }
-  };
-
-  const handleSplineFailure = useCallback(() => {
-    // eslint-disable-next-line react-hooks/immutability -- imperative Spline runtime object
-    platterNodeRef.current = null;
-    setSplineStatus('fallback');
-  }, []);
-
   const renderJogWheel = () => (
     <div className="jogwheel-wrapper flex flex-col gap-4 items-center deck-chassis rounded-2xl p-4">
       <div className={compact ? 'relative h-36 w-36 sm:h-40 sm:w-40' : 'relative w-64 h-64'}>
-        {splineStatus !== 'ready' && (
           <div
             className="absolute inset-0 rounded-full border border-white/8 bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.14)_0%,rgba(18,18,18,0.95)_38%,rgba(5,5,5,1)_70%,rgba(0,0,0,1)_100%)]"
             style={{ boxShadow: `inset 0 0 60px rgba(0,0,0,0.85), 0 0 30px rgba(${deckTheme.primaryRgb}, 0.2)` }}
@@ -605,16 +527,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
             </div>
             <div className="absolute inset-[8%] rounded-full border" style={{ borderColor: `rgba(${deckTheme.primaryRgb}, 0.2)` }} />
           </div>
-        )}
-        {splineEnabled && splineStatus !== 'fallback' && (
-          <SplineErrorBoundary onError={handleSplineFailure}>
-            <Spline
-              scene={SPLINE_SCENE_URL}
-              onLoad={handleSplineLoad}
-              className={clsx('absolute inset-0 transition-opacity duration-300', splineStatus === 'ready' ? 'opacity-100' : 'opacity-0')}
-            />
-          </SplineErrorBoundary>
-        )}
         <svg className="absolute inset-0 pointer-events-none" viewBox="0 0 256 256">
           <circle cx="128" cy="128" r="120" fill="transparent" stroke={`rgba(${deckTheme.primaryRgb}, 0.32)`} strokeWidth="3" />
           <circle
@@ -652,11 +564,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
                   className="w-12 h-12 border-2 border-t-transparent rounded-full animate-spin"
                   style={{ borderColor: `rgba(${deckTheme.primaryRgb}, 0.9)`, borderTopColor: 'transparent' }}
                 />
-              </div>
-            )}
-            {!isLoading && splineStatus === 'fallback' && (
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full border border-white/10 bg-black/65 px-2 py-1 text-[9px] font-bold uppercase tracking-[0.24em] text-slate-300">
-                Local Visual
               </div>
             )}
           </div>
@@ -701,7 +608,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
             compact={compact}
             onScrubTo={handleOverviewScrub}
           />
-          <div className="crt-scanline-overlay rounded" />
         </div>
       )}
       <div className={compact ? 'flex items-start justify-between gap-3 text-slate-100' : 'flex items-center justify-between text-slate-100'}>
