@@ -96,6 +96,10 @@ export function OverviewWaveform({
       return `rgba(255, ${150 - t * 150}, ${0 + t * 20}, ${0.92 + t * 0.08})`;
     };
 
+    // Bottom reflection is scaled to 60 % of the top bar height for the
+    // characteristic Serato/Traktor "reflection fade" look.
+    const BOTTOM_BAR_SCALE = 0.6;
+
     for (let i = 0; i < peaks.length; i++) {
       const x = i * barWidth;
       const val = Math.max(-1, Math.min(1, peaks[i] ?? 0));
@@ -105,7 +109,7 @@ export function OverviewWaveform({
       ctx.fillStyle = getAmplitudeColor(absVal);
       // Mirror bars above and below the centre line
       ctx.fillRect(x, midY - barHeight, barWidth, barHeight);
-      ctx.fillRect(x, midY, barWidth, barHeight * 0.6);
+      ctx.fillRect(x, midY, barWidth, barHeight * BOTTOM_BAR_SCALE);
     }
   }, [peaks, size.width, size.height]);
 
