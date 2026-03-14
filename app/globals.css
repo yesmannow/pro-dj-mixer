@@ -2,13 +2,13 @@
 @import "tw-animate-css";
 
 @theme {
-  --color-primary: #050505;
+  --color-primary: #000000;
   --color-accent: #D4AF37;
   --color-deck-a: #D4AF37; /* Gold */
   --color-deck-b: #E11D48; /* Crimson */
-  --color-background: #050505;
-  --color-studio-black: #050505;
-  --color-studio-slate: #1A1610;
+  --color-background: #000000;
+  --color-studio-black: #000000;
+  --color-studio-slate: #1A1A1A;
   --color-studio-gold: #FFD700;
   --color-studio-crimson: #FF003C;
   --font-display: var(--font-heading), sans-serif;
@@ -16,13 +16,13 @@
 }
 
 :root {
-  --color-primary: #050505;
+  --color-primary: #000000;
   --color-accent: #D4AF37;
   --color-deck-a: #D4AF37; /* Gold */
   --color-deck-b: #E11D48; /* Crimson */
-  --color-background: #050505;
-  --color-studio-black: #050505;
-  --color-studio-slate: #1A1610;
+  --color-background: #000000;
+  --color-studio-black: #000000;
+  --color-studio-slate: #1A1A1A;
   --color-studio-gold: #FFD700;
   --color-studio-crimson: #FF003C;
   --glass-border: rgba(255, 255, 255, 0.08);
@@ -41,7 +41,7 @@
   }
 
   .deck-chassis {
-    background: linear-gradient(145deg, #0a0a0a, #121212);
+    background: linear-gradient(145deg, #0d0d0d, #1a1a1a);
     box-shadow: 0 0 10px rgba(0, 0, 0, 0.8), 0 10px 10px rgba(0, 0, 0, 0.6);
   }
 
@@ -52,7 +52,7 @@
 
   /* Brutalist Rubberized Pad Styles */
   .mpc-grid-container {
-    background: #050505;
+    background: #000000;
     padding: 12px;
     border-radius: 8px;
     border: 1px solid #1a1a1a;
@@ -104,30 +104,30 @@
   }
 
   .stem-led {
-    width: 28px;
+    min-width: 40px;
     height: 28px;
-    border-radius: 50%;
-    border: 2px solid #333;
-    background: #111;
-    opacity: 0.35;
+    border-radius: 4px;
+    border: 1px solid #333;
+    background: #1e293b;
+    opacity: 0.75;
     transition: all 0.15s ease;
     cursor: pointer;
-    font-size: 7px;
+    font-size: 9px;
     font-weight: 800;
     letter-spacing: 0.06em;
     display: flex;
     align-items: center;
     justify-content: center;
     text-transform: uppercase;
-    color: #555;
+    color: #64748b;
   }
 
   .stem-led-active {
     opacity: 1;
     border-color: var(--stem-color, #FFD700);
-    background: var(--stem-color, #FFD700);
-    color: #000;
-    box-shadow: 0 0 14px var(--stem-color, #FFD700), 0 0 4px var(--stem-color, #FFD700);
+    background: #1e293b;
+    color: var(--stem-color, #FFD700);
+    box-shadow: 0 4px 12px var(--stem-glow, rgba(255,215,0,0.5));
   }
 
   .oled-display {

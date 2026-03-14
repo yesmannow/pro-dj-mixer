@@ -12,12 +12,11 @@ import { Layout as PerformanceLayout } from '@/components/Layout';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useShallow } from 'zustand/react/shallow';
-import { ChevronUp, Settings } from 'lucide-react';
+import { ChevronUp } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-import { SettingsPanel } from '@/components/SettingsPanel';
 import { ViewControls } from '@/components/ViewControls';
-import { MobileNav, type MobileNavTab } from '@/components/MobileNav';
+import { MobileNav } from '@/components/MobileNav';
 
 const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
 
@@ -32,6 +31,8 @@ export default function Home() {
     isMixerVisible,
     isAddMusicModalOpen,
     isPerformanceMode,
+    activeTab,
+    setActiveTab,
     toggleWaveform,
     toggleLibrary,
     togglePerformanceMode,
@@ -42,9 +43,7 @@ export default function Home() {
   const deckA = useDeckStore(useShallow((s) => ({ isPlaying: s.deckA.isPlaying, bpm: Number(s.deckA.track?.bpm) || 0 })));
   const deckB = useDeckStore(useShallow((s) => ({ isPlaying: s.deckB.isPlaying, bpm: Number(s.deckB.track?.bpm) || 0 })));
 
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
-  const [activeTab, setActiveTab] = useState<MobileNavTab>('DECK_A');
   const [isRemixDrawerOpen, setIsRemixDrawerOpen] = useState(false);
 
   useEffect(() => {
@@ -67,7 +66,7 @@ export default function Home() {
       style={{ touchAction: 'none' }}
     >
       <main className="flex-1 flex flex-col relative min-h-0">
-        <ViewControls compact={isCompactViewport} onOpenSettings={() => setIsSettingsOpen(true)} />
+        <ViewControls compact={isCompactViewport} />
         <div className={
           isCompactViewport
             ? 'flex-1 flex flex-col gap-3 px-3 pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-14 overflow-hidden min-w-0'
@@ -143,15 +142,6 @@ export default function Home() {
                     <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
                       <div className="p-4 border-b border-studio-gold/20 flex justify-between items-center">
                         <h2 className="text-sm font-bold text-white tracking-tight">MIXER</h2>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => setIsSettingsOpen(true)}
-                            className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                            title="Settings"
-                          >
-                            <Settings className="w-4 h-4" />
-                          </button>
-                        </div>
                       </div>
                       <div className="p-4">
                         <Mixer />
@@ -200,7 +190,6 @@ export default function Home() {
       </main>
       {isCompactViewport && <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />}
       {isAddMusicModalOpen && <AddMusicModal />}
-      <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       <AudioStats />
     </div>
   );

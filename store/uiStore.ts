@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 
+type MobileNavTab = 'DECK_A' | 'MIXER' | 'DECK_B' | 'LIBRARY';
+
 interface UIState {
   isWaveformVisible: boolean;
   isLibraryVisible: boolean;
@@ -14,6 +16,7 @@ interface UIState {
   isSmartMatchEnabled: boolean;
   isPerformanceMode: boolean;
   isGridView: boolean;
+  activeTab: MobileNavTab;
   toggleWaveform: () => void;
   toggleLibrary: () => void;
   toggleDeckA: () => void;
@@ -27,6 +30,7 @@ interface UIState {
   toggleSmartMatch: () => void;
   togglePerformanceMode: () => void;
   toggleGridView: () => void;
+  setActiveTab: (tab: MobileNavTab) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -43,6 +47,7 @@ export const useUIStore = create<UIState>((set) => ({
   isSmartMatchEnabled: false,
   isPerformanceMode: false,
   isGridView: false,
+  activeTab: 'DECK_A' as MobileNavTab,
   toggleWaveform: () => set((state) => ({ isWaveformVisible: !state.isWaveformVisible })),
   toggleLibrary: () => set((state) => ({ isLibraryVisible: !state.isLibraryVisible })),
   toggleDeckA: () => set((state) => ({ isDeckAVisible: !state.isDeckAVisible })),
@@ -58,4 +63,5 @@ export const useUIStore = create<UIState>((set) => ({
   toggleSmartMatch: () => set((state) => ({ isSmartMatchEnabled: !state.isSmartMatchEnabled })),
   togglePerformanceMode: () => set((state) => ({ isPerformanceMode: !state.isPerformanceMode })),
   toggleGridView: () => set((state) => ({ isGridView: !state.isGridView })),
+  setActiveTab: (tab) => set({ activeTab: tab }),
 }));

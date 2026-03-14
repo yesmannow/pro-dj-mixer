@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { PanelTop, PanelBottom, Settings, Maximize, Minimize } from 'lucide-react';
+import { PanelTop, PanelBottom, Maximize, Minimize } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useUIStore } from '@/store/uiStore';
 import { useMediaRecorder } from '@/hooks/useMediaRecorder';
@@ -12,7 +12,7 @@ function formatElapsed(seconds: number): string {
   return `${m}:${s}`;
 }
 
-export function ViewControls({ compact = false, onOpenSettings }: Readonly<{ compact?: boolean; onOpenSettings: () => void }>) {
+export function ViewControls({ compact = false }: Readonly<{ compact?: boolean }>) {
   const {
     isWaveformVisible,
     isLibraryVisible,
@@ -158,16 +158,6 @@ export function ViewControls({ compact = false, onOpenSettings }: Readonly<{ com
         title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
       >
         {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
-      </button>
-
-      <div className="w-px h-4 bg-slate-700 mx-1"></div>
-
-      <button
-        onClick={onOpenSettings}
-        className="p-1.5 rounded-full text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all duration-300"
-        title="Settings"
-      >
-        <Settings className="w-4 h-4" />
       </button>
     </div>
   );
