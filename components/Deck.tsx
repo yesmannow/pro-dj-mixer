@@ -253,7 +253,6 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const jogWheelRef = useRef<HTMLDivElement>(null);
   const lastAngleRef = useRef<number>(0);
   const isDraggingRef = useRef(false);
-  const pitchPercentRef = useRef(pitchPercent);
   const lastMoveTimeRef = useRef<number>(0);
   const lastDeltaRef = useRef<number>(0);
   const platterNodeRef = useRef<any>(null);
@@ -508,24 +507,21 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   }, [currentTime]);
 
   useEffect(() => {
-    pitchPercentRef.current = pitchPercent;
-  }, [pitchPercent]);
-
-  useEffect(() => {
     let raf: number;
     const tick = () => {
-      const combinedTime = currentTimeRef.current + scratchOffsetRef.current;
-      const playbackRate = 1 + pitchPercentRef.current / 100;
-      // PLATTER_REVOLUTION_SECONDS = seconds per revolution at 1× speed; divide by playbackRate for pitch-accurate spin
-      const baseRadians = -((combinedTime) / (PLATTER_REVOLUTION_SECONDS / Math.max(0.01, playbackRate))) * (Math.PI * 2);
-      const jitter = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.002 : 0;
+      // currentTimeRef already advances using the engine's real, smoothed playbackRate,
+      // so platter spin should derive from transport time only and add scratch as angle.
+      const audioDegrees = (currentTimeRef.current / PLATTER_REVOLUTION_SECONDS) * 360;
+      const jitterDegrees = !isPlaying ? Math.sin(performance.now() * 0.1) * 0.12 : 0;
+      const totalDegrees = audioDegrees + scratchOffsetRef.current + jitterDegrees;
+      const baseRadians = -(totalDegrees * (Math.PI / 180));
       const node = platterNodeRef.current;
       if (node) {
-        node.rotation.y = baseRadians + jitter;
+        node.rotation.y = baseRadians;
       }
       const fallback = fallbackPlatterRef.current;
       if (fallback) {
-        fallback.style.transform = `rotate(${((-baseRadians - jitter) * 180) / Math.PI}deg)`;
+        fallback.style.transform = `rotate(${totalDegrees}deg)`;
       }
       raf = requestAnimationFrame(tick);
     };
