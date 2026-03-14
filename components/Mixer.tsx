@@ -228,26 +228,8 @@ function MixOpportunityBadge() {
 export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   const { eqA, eqB, volA, volB, crossfader, crossfaderCurve, vaultAmbience, setEQ, setVolume, setCrossfader, setCrossfaderCurve, setVaultAmbience } = useMixerStore();
   const cuesByTrack = useTrackCueStore((state) => state.cuesByTrack);
-  const { deckAState, deckBState } = useDeckStore(useShallow((state) => ({
-    deckAState: {
-      track: state.deckA.track,
-      isPlaying: state.deckA.isPlaying,
-      currentTime: state.deckA.currentTime,
-      pitchPercent: state.deckA.pitchPercent,
-      sync: state.deckA.sync,
-      keyLock: state.deckA.keyLock,
-      stems: state.deckA.stems,
-    },
-    deckBState: {
-      track: state.deckB.track,
-      isPlaying: state.deckB.isPlaying,
-      currentTime: state.deckB.currentTime,
-      pitchPercent: state.deckB.pitchPercent,
-      sync: state.deckB.sync,
-      keyLock: state.deckB.keyLock,
-      stems: state.deckB.stems,
-    },
-  })));
+  const deckAState = useDeckStore((state) => state.deckA);
+  const deckBState = useDeckStore((state) => state.deckB);
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);
@@ -478,9 +460,10 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       const targetState = targetDeck === 'A' ? deckA : deckB;
       const baseRate = Math.max(0.5, Math.min(2.0, 1 + targetState.pitchPercent / 100));
       const correctionWindow = Math.min(0.005, Math.abs(phaseDelta) * Math.min(secPerBeatA, secPerBeatB));
+      // Apply 60% of the computed timing correction so the decks converge smoothly instead of wobbling.
       const correctedRate = baseRate + (phaseDelta > 0 ? -1 : 1) * correctionWindow * 0.6;
       engine.setDeckPlaybackRate(targetDeck, correctedRate);
-    }, 5);
+    }, 5); // Spec: keep the neural phase-correction loop at a 5ms cadence around the centre zone.
 
     return () => {
       window.clearInterval(interval);

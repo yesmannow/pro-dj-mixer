@@ -146,6 +146,8 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
         const mapEQ = (val: number) => val < 0 ? val * 24 : val * 6;
         const now = engine.context.currentTime;
+        // Neural fades automatically trim low-end on the incoming/outgoing deck edges to keep
+        // the transition airy instead of muddy while the manual EQ knobs remain additive.
         eqChainRef.current.low.gain.setTargetAtTime(Math.max(-24, mapEQ(eqState.low) - neuralLowTrim * 18), now, 0.02);
         eqChainRef.current.mid.gain.setTargetAtTime(mapEQ(eqState.mid), now, 0.02);
         eqChainRef.current.high.gain.setTargetAtTime(mapEQ(eqState.high), now, 0.02);

@@ -106,6 +106,7 @@ export class AudioEngine {
   private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
+  private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
@@ -309,6 +310,8 @@ export class AudioEngine {
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
       gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
     });
+    // Preserve the pre-Phase-7 deck-wide FX sound on load by starting fully routed to the FX path.
+    // Users can then drop individual stems back to the direct path via the new FX Sends UI.
     [drumsDirectGain, instDirectGain, vocalsDirectGain].forEach((gainNode) => {
       gainNode.gain.value = 0;
     });
@@ -832,7 +835,13 @@ export class AudioEngine {
 
     const now = this.context.currentTime;
     const safeLoopStart = Math.max(0, Math.min(loopStart, deck.buffer.duration));
-    const safeLoopDuration = Math.max(0.05, Math.min(loopDuration, Math.max(0.05, deck.buffer.duration - safeLoopStart)));
+    const safeLoopDuration = Math.max(
+      AudioEngine.MIN_PERFORMANCE_LOOP_DURATION,
+      Math.min(
+        loopDuration,
+        Math.max(AudioEngine.MIN_PERFORMANCE_LOOP_DURATION, deck.buffer.duration - safeLoopStart)
+      )
+    );
     const freshSource = this.createPitchLockedSource(deckId, deck.buffer);
 
     this.performanceLoops[deckId] = {
@@ -888,6 +897,7 @@ export class AudioEngine {
 
   public startBeatBreak(deckId: 'A' | 'B', loopStart: number, originTime: number, bpm: number) {
     const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+    // Slow the loop slightly for a classic beat-break tug before slipping back to the live timeline.
     return this.startPerformanceLoop(deckId, loopStart, originTime, (60 / safeBpm) * 0.5, 'beat-break', 0.92);
   }
 

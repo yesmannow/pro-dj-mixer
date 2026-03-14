@@ -24,6 +24,8 @@ const DEFAULT_RGB = 80;
 
 /** Beats per phrase marker (4 bars × 4 beats = 16 beats) */
 const BEATS_PER_PHRASE_MARKER = 16;
+/** Beat-phase tolerance for the ghost playhead lock indicator (~20ms at 120 BPM). */
+const PHASE_ALIGNMENT_TOLERANCE = 0.04;
 
 /**
  * Maximum width for the off-screen background canvas.
@@ -247,7 +249,7 @@ function getPhaseAlignment(
   const offset = Math.min(rawOffset, 1 - rawOffset);
   return {
     offset,
-    isAligned: offset < 0.04,
+    isAligned: offset < PHASE_ALIGNMENT_TOLERANCE,
   };
 }
 

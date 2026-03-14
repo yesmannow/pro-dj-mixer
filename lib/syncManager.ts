@@ -51,7 +51,7 @@ export interface SessionState {
   cueCloud: Record<string, CueCloudEntry[]>;
 }
 
-const SESSION_STORAGE_KEY = 'pro-dj-mixer:session-sync:v1';
+const LOCAL_SESSION_PERSISTENCE_KEY = 'pro-dj-mixer:session-sync:v1';
 type SessionDeckInput = Omit<SessionDeckState, 'trackHash'> & { track: Track | null };
 
 const toTrackHashEntry = (track: Track) => {
@@ -127,7 +127,7 @@ export const saveSessionState = (sessionState: SessionState) => {
   if (typeof window === 'undefined') return;
 
   try {
-    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionState));
+    window.localStorage.setItem(LOCAL_SESSION_PERSISTENCE_KEY, JSON.stringify(sessionState));
   } catch {
     // Ignore localStorage quota/privacy mode failures so local mixing remains responsive.
   }
@@ -137,7 +137,7 @@ export const loadSessionState = (): SessionState | null => {
   if (typeof window === 'undefined') return null;
 
   try {
-    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    const raw = window.localStorage.getItem(LOCAL_SESSION_PERSISTENCE_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as SessionState;
   } catch {
