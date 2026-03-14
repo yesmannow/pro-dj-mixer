@@ -1,13 +1,19 @@
 export type StemType = 'drums' | 'inst' | 'vocals';
 export type NeuralStemGains = Record<StemType, { a: number; b: number }>;
+const NEURAL_STEM_GAIN = 0.33;
+const NEURAL_DRUMS_THRESHOLD = 0.25;
+const NEURAL_INST_THRESHOLD = 0.5;
+const NEURAL_VOCALS_THRESHOLD = 0.75;
 
 export const calculateNeuralGains = (xfade: number): NeuralStemGains => {
   const norm = Math.max(0, Math.min(1, (xfade + 1) / 2));
 
+  // Drums and instruments intentionally hard-swap at their power points; timing smoothness is applied
+  // in the deck hook with sub-10ms/short ramps so the stems trade places without kick or tonal clashes.
   return {
-    drums: norm > 0.25 ? { a: 0, b: 0.33 } : { a: 0.33, b: 0 },
-    inst: norm > 0.5 ? { a: 0, b: 0.33 } : { a: 0.33, b: 0 },
-    vocals: norm > 0.75 ? { a: 0, b: 0.33 } : { a: 0.33, b: 0 },
+    drums: norm > NEURAL_DRUMS_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
+    inst: norm > NEURAL_INST_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
+    vocals: norm > NEURAL_VOCALS_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
   };
 };
 

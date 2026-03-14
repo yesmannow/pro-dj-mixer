@@ -14,6 +14,8 @@ interface RemixSlotState {
   isPlaying: boolean;
 }
 
+const REMIX_SLOT_COUNT = 4;
+const FOUR_BAR_LOOP_BEATS = 16;
 const EMPTY_SLOT: RemixSlotState = {
   buffer: null,
   deckId: null,
@@ -28,11 +30,13 @@ const getSafeBpm = (value: string | number | undefined, fallback: number) => {
 };
 
 export function RemixGrid() {
-  const [slots, setSlots] = useState<RemixSlotState[]>(() => Array.from({ length: 4 }, () => ({ ...EMPTY_SLOT })));
+  const [slots, setSlots] = useState<RemixSlotState[]>(() => Array.from({ length: REMIX_SLOT_COUNT }, () => ({ ...EMPTY_SLOT })));
   const deckA = useDeckStore((state) => state.deckA);
   const deckB = useDeckStore((state) => state.deckB);
   const crossfader = useMixerStore((state) => state.crossfader);
-  const slotSourcesRef = useRef<Array<{ source: AudioBufferSourceNode; gain: GainNode } | null>>([null, null, null, null]);
+  const slotSourcesRef = useRef<Array<{ source: AudioBufferSourceNode; gain: GainNode } | null>>(
+    Array.from({ length: REMIX_SLOT_COUNT }, () => null)
+  );
 
   const activeDeckId = useMemo<'A' | 'B'>(() => {
     if (deckA.isPlaying && !deckB.isPlaying) return 'A';
@@ -76,7 +80,8 @@ export function RemixGrid() {
     stopSlot(slotIndex);
 
     const sourceBpm = getSafeBpm(activeDeck.track?.bpm, masterBpm);
-    const loopDurationSeconds = (60 / sourceBpm) * 16;
+    // Four bars in 4/4 time equals sixteen beats, so each captured pad stays phrase-aligned.
+    const loopDurationSeconds = (60 / sourceBpm) * FOUR_BAR_LOOP_BEATS;
     const captureStart = Math.max(0, Math.min(activeDeck.currentTime, Math.max(0, activeDeck.buffer.duration - loopDurationSeconds)));
     const frameStart = Math.floor(captureStart * activeDeck.buffer.sampleRate);
     const frameCount = Math.max(1, Math.floor(loopDurationSeconds * activeDeck.buffer.sampleRate));
@@ -88,9 +93,18 @@ export function RemixGrid() {
 
     for (let channel = 0; channel < activeDeck.buffer.numberOfChannels; channel += 1) {
       const sourceData = activeDeck.buffer.getChannelData(channel);
-      const slice = sourceData.subarray(frameStart, Math.min(sourceData.length, frameStart + frameCount));
       const destination = captureBuffer.getChannelData(channel);
-      destination.set(slice);
+      let writeOffset = 0;
+      let readOffset = frameStart;
+
+      while (writeOffset < frameCount) {
+        const remaining = frameCount - writeOffset;
+        const available = sourceData.length - readOffset;
+        const chunkLength = Math.min(remaining, available);
+        destination.set(sourceData.subarray(readOffset, readOffset + chunkLength), writeOffset);
+        writeOffset += chunkLength;
+        readOffset = (readOffset + chunkLength) % sourceData.length;
+      }
     }
 
     setSlots((current) => current.map((slot, index) => (
@@ -124,7 +138,7 @@ export function RemixGrid() {
 
     const beatLength = 60 / masterBpm;
     const phase = ((activeDeck.currentTime % beatLength) + beatLength) % beatLength;
-    const launchDelay = phase === 0 ? 0 : beatLength - phase;
+    const launchDelay = phase < 0.001 ? 0 : beatLength - phase;
     source.start(engine.context.currentTime + launchDelay);
 
     slotSourcesRef.current[slotIndex] = { source, gain };
@@ -132,6 +146,16 @@ export function RemixGrid() {
       index === slotIndex ? { ...currentSlot, isPlaying: true } : currentSlot
     )));
   }, [activeDeck.currentTime, masterBpm, slots, stopSlot]);
+
+  useEffect(() => {
+    const engine = AudioEngine.getInstance();
+    slotSourcesRef.current.forEach((entry, slotIndex) => {
+      if (!entry) return;
+      const slot = slots[slotIndex];
+      const targetRate = Math.max(0.5, Math.min(2, masterBpm / Math.max(1, slot.sourceBpm)));
+      entry.source.playbackRate.setTargetAtTime(targetRate, engine.context.currentTime, 0.01);
+    });
+  }, [masterBpm, slots]);
 
   return (
     <section className="deck-chassis rounded-xl border border-studio-gold/20 p-3 md:p-4 shadow-2xl">

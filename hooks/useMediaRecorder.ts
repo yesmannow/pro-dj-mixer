@@ -17,6 +17,12 @@ const formatDownloadTimestamp = (date: Date) =>
 const MIN_24BIT_SIGNED = 0x800000;
 const MAX_24BIT_POSITIVE = 0x7fffff;
 const FULL_24BIT_RANGE = 0x1000000;
+// 44.1k points keeps the sigmoid smooth enough for a mastering-stage waveshaper without extra allocations.
+const SATURATION_CURVE_SAMPLES = 44100;
+// Tuned for subtle console-style warmth rather than obvious distortion on the bounced mix.
+const SATURATION_AMOUNT = 20;
+// 18ms is the requested right-channel Haas offset: wide enough to open the image, short enough to avoid echo.
+const HAAS_DELAY_SECONDS = 0.018;
 
 const formatSetTimestamp = (seconds: number) => {
   const hours = Math.floor(seconds / 3600);
@@ -28,14 +34,16 @@ const formatSetTimestamp = (seconds: number) => {
 };
 
 function makeSaturationCurve(amount = 20) {
-  const n = 44100;
-  const curve = new Float32Array(n);
-  for (let i = 0; i < n; ++i) {
-    const x = (i * 2) / n - 1;
+  // Sigmoid transfer tuned for subtle "analog warmth" on the recording print, not aggressive clipping.
+  const curve = new Float32Array(SATURATION_CURVE_SAMPLES);
+  for (let i = 0; i < SATURATION_CURVE_SAMPLES; ++i) {
+    const x = (i * 2) / SATURATION_CURVE_SAMPLES - 1;
     curve[i] = (Math.PI + amount) * x / (Math.PI + amount * Math.abs(x));
   }
   return curve;
 }
+
+const SATURATION_CURVE = makeSaturationCurve(SATURATION_AMOUNT);
 
 const downloadBlob = (blob: Blob, fileName: string) => {
   const url = URL.createObjectURL(blob);
@@ -173,11 +181,11 @@ export function useMediaRecorder() {
     const recorderContext = new RecorderContextCtor({ sampleRate: recordingProfile.sampleRate });
     const sourceNode = recorderContext.createMediaStreamSource(stream);
     const saturationNode = recorderContext.createWaveShaper();
-    saturationNode.curve = makeSaturationCurve(20);
+    saturationNode.curve = SATURATION_CURVE;
     saturationNode.oversample = '4x';
     const channelSplitter = recorderContext.createChannelSplitter(2);
-    const rightHaasDelay = recorderContext.createDelay(0.018);
-    rightHaasDelay.delayTime.value = 0.018;
+    const rightHaasDelay = recorderContext.createDelay(HAAS_DELAY_SECONDS);
+    rightHaasDelay.delayTime.value = HAAS_DELAY_SECONDS;
     const channelMerger = recorderContext.createChannelMerger(2);
     const processorNode = recorderContext.createScriptProcessor(4096, 2, 2);
     const monitorGain = recorderContext.createGain();

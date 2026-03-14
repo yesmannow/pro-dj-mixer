@@ -58,9 +58,22 @@ export interface SessionState {
 
 const LOCAL_SESSION_PERSISTENCE_KEY = 'pro-dj-mixer:session-sync:v1';
 const SYNC_CHANNEL_NAME = 'pro_dj_studio_sync';
-const syncClientId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
-  ? crypto.randomUUID()
-  : `sync-${Math.random().toString(36).slice(2)}`;
+const createSyncClientId = () => {
+  const webCrypto = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+
+  if (webCrypto?.randomUUID) {
+    return webCrypto.randomUUID();
+  }
+
+  if (webCrypto?.getRandomValues) {
+    const values = webCrypto.getRandomValues(new Uint32Array(4));
+    return Array.from(values, (value) => value.toString(16).padStart(8, '0')).join('-');
+  }
+
+  return `sync-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+};
+
+const syncClientId = createSyncClientId();
 
 type SessionDeckInput = Omit<SessionDeckState, 'trackHash'> & { track: Track | null };
 type CueSyncPayload = CueCloudEntry & { deleted?: boolean };
@@ -73,6 +86,44 @@ let syncChannel: BroadcastChannel | null = null;
 let syncListenerAttached = false;
 let lastRemoteSessionSignature = '';
 let lastBroadcastSessionSignature = '';
+
+const isCueSyncPayload = (value: unknown): value is CueSyncPayload => {
+  if (!value || typeof value !== 'object') return false;
+  const cue = value as Partial<CueSyncPayload>;
+  return (
+    typeof cue.slot === 'number' &&
+    typeof cue.time === 'number' &&
+    (cue.type === 'hot' || cue.type === 'memory') &&
+    typeof cue.timestamp === 'number' &&
+    typeof cue.color === 'string' &&
+    typeof cue.name === 'string'
+  );
+};
+
+const isSessionState = (value: unknown): value is SessionState => {
+  if (!value || typeof value !== 'object') return false;
+  const session = value as Partial<SessionState>;
+  return (
+    session.version === 'sync-ready-v1' &&
+    typeof session.updatedAt === 'number' &&
+    !!session.decks &&
+    !!session.mixer &&
+    !!session.trackHashes &&
+    !!session.cueCloud
+  );
+};
+
+const isSyncMessage = (value: unknown): value is SyncMessage => {
+  if (!value || typeof value !== 'object') return false;
+  const message = value as Partial<SyncMessage>;
+  if (typeof message.senderId !== 'string') return false;
+  if (message.type === 'LIBRARY_REFRESH') return true;
+  if (message.type === 'SESSION_STATE') return isSessionState(message.sessionState);
+  if (message.type === 'NEW_CUE') {
+    return typeof message.trackHash === 'string' && isCueSyncPayload(message.cueData);
+  }
+  return false;
+};
 
 const getSyncChannel = () => {
   if (typeof window === 'undefined' || typeof BroadcastChannel === 'undefined') {
@@ -98,9 +149,10 @@ const cueEntryToCuePoint = (cue: CueSyncPayload): CuePoint => ({
 const applyRemoteCue = (trackHash: string, cueData: CueSyncPayload) => {
   useTrackCueStore.setState((state) => {
     const existingCues = state.cuesByTrack[trackHash] ?? [];
+    const cuesWithoutSlot = existingCues.filter((cue) => cue.slot !== cueData.slot);
     const nextCues = cueData.deleted
-      ? existingCues.filter((cue) => cue.slot !== cueData.slot)
-      : [...existingCues.filter((cue) => cue.slot !== cueData.slot), cueEntryToCuePoint(cueData)]
+      ? cuesWithoutSlot
+      : [...cuesWithoutSlot, cueEntryToCuePoint(cueData)]
           .sort((a, b) => a.slot - b.slot);
 
     return {
@@ -113,8 +165,6 @@ const applyRemoteCue = (trackHash: string, cueData: CueSyncPayload) => {
 };
 
 const applyRemoteSessionState = async (sessionState: SessionState) => {
-  saveSessionState(sessionState, { broadcast: false });
-
   useMixerStore.setState({
     crossfader: sessionState.mixer.crossfader,
     crossfaderCurve: sessionState.mixer.crossfaderCurve,
@@ -176,6 +226,8 @@ const applyRemoteSessionState = async (sessionState: SessionState) => {
       await useDeckStore.getState().loadTrack(deckId, matchedTrack);
     }
   }));
+
+  saveSessionState(sessionState, { broadcast: false });
 };
 
 const toTrackHashEntry = (track: Track) => {
@@ -258,6 +310,7 @@ export const ensureSessionSync = () => {
 
   channel.onmessage = (event: MessageEvent<SyncMessage>) => {
     const message = event.data;
+    if (!isSyncMessage(message)) return;
     if (!message || message.senderId === syncClientId) return;
 
     emitSyncFeedback(message.type);

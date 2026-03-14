@@ -131,6 +131,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       if (eqChainRef.current) {
         const neuralPosition = (crossfader + 1) / 2;
         const neuralStemGains = calculateNeuralGains(crossfader);
+        const gainKey = deckId === 'A' ? 'a' : 'b';
         const neuralLowTrim =
           crossfaderCurve === 'neural'
             ? deckId === 'A'
@@ -138,14 +139,14 @@ export function useDeckAudio(deckId: 'A' | 'B') {
               : Math.max(0, (0.4 - neuralPosition) / 0.4)
             : 0;
         if (crossfaderCurve === 'neural') {
-          engine.setStemContribution(deckId, 'drums', deckState.stems.drums ? neuralStemGains.drums[deckId === 'A' ? 'a' : 'b'] : 0, {
+          engine.setStemContribution(deckId, 'drums', deckState.stems.drums ? neuralStemGains.drums[gainKey] : 0, {
             rampSeconds: 0.008,
             mode: 'linear',
           });
-          engine.setStemContribution(deckId, 'inst', deckState.stems.inst ? neuralStemGains.inst[deckId === 'A' ? 'a' : 'b'] : 0, {
+          engine.setStemContribution(deckId, 'inst', deckState.stems.inst ? neuralStemGains.inst[gainKey] : 0, {
             rampSeconds: 0.01,
           });
-          engine.setStemContribution(deckId, 'vocals', deckState.stems.vocals ? neuralStemGains.vocals[deckId === 'A' ? 'a' : 'b'] : 0, {
+          engine.setStemContribution(deckId, 'vocals', deckState.stems.vocals ? neuralStemGains.vocals[gainKey] : 0, {
             rampSeconds: 0.5,
             mode: 'linear',
           });
