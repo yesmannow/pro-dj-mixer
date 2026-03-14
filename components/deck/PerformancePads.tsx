@@ -46,6 +46,18 @@ export function PerformancePads({
 }: Readonly<PerformancePadsProps>) {
   const labelSet = keyLabels[deckId];
   const [pointerPressed, setPointerPressed] = useState<Set<number>>(new Set());
+  const getPadDisplay = (slot: number, isActive: boolean) => {
+    if (padMode === 'slip-roll') {
+      const division = slot < 4 ? '1/4' : '1/8';
+      return isActive ? `ROLL ${division}` : division;
+    }
+
+    if (padMode === 'beat-break') {
+      return isActive ? `BREAK ${slot}` : 'BREAK';
+    }
+
+    return isActive ? `CUE ${slot}` : 'EMPTY';
+  };
 
   return (
     <div className={compact ? 'flex flex-col gap-2' : 'flex flex-col gap-3'}>
@@ -160,7 +172,7 @@ export function PerformancePads({
                 <span className={compact ? 'absolute inset-0 flex items-center justify-center text-[9px] font-black text-red-200' : 'absolute inset-0 flex items-center justify-center text-[11px] font-black text-red-200'}>DEL</span>
               ) : (
                 <span className={compact ? 'absolute inset-0 flex items-center justify-center text-[9px] font-black text-slate-200' : 'absolute inset-0 flex items-center justify-center text-[11px] font-black text-slate-200'}>
-                  {isActive ? `CUE ${slot}` : 'EMPTY'}
+                  {getPadDisplay(slot, isActive)}
                 </span>
               )}
               <div className={compact ? 'absolute bottom-0.5 right-0.5 text-[7px] text-gray-500' : 'absolute bottom-1 right-1 text-[8px] text-gray-500'}>{slot}</div>

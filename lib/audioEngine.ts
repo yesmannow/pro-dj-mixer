@@ -108,11 +108,16 @@ export class AudioEngine {
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
   private static readonly NEURAL_FADE_CURVE_EXPONENT = 0.72;
+  private static readonly TARGET_RECORDING_SAMPLE_RATE = 48000;
+  private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
     try {
-      this.context = new AudioContextCtor({ latencyHint: this.latencyHint });
+      this.context = new AudioContextCtor({
+        latencyHint: this.latencyHint,
+        sampleRate: AudioEngine.TARGET_RECORDING_SAMPLE_RATE,
+      });
     } catch {
       this.context = new AudioContextCtor();
     }
@@ -767,6 +772,14 @@ export class AudioEngine {
     return this.recordingDestination ? this.recordingDestination.stream : null;
   }
 
+  public getRecordingProfile() {
+    return {
+      sampleRate: this.context.sampleRate,
+      bitDepth: AudioEngine.TARGET_RECORDING_BIT_DEPTH,
+      signalPath: 'post-limiter-master' as const,
+    };
+  }
+
   private getPitchLockSupport() {
     const probe = this.context.createBufferSource() as AudioBufferSourceNode & {
       preservesPitch?: boolean;
@@ -799,7 +812,7 @@ export class AudioEngine {
     curve: 'blend' | 'cut' | 'neural' = 'blend'
   ): { gainA: number; gainB: number } {
     // crossfaderValue ranges from -1 (Deck A) to 1 (Deck B)
-    const x = (crossfaderValue + 1) / 2; // 0 -> 1
+    const x = Math.max(0, Math.min(1, (crossfaderValue + 1) / 2)); // 0 -> 1
 
     if (curve === 'cut') {
       if (x <= 0.05) {
@@ -888,9 +901,10 @@ export class AudioEngine {
     return freshSource;
   }
 
-  public startSlipRoll(deckId: 'A' | 'B', loopStart: number, originTime: number, bpm: number) {
+  public startSlipRoll(deckId: 'A' | 'B', loopStart: number, originTime: number, bpm: number, beatFraction = 0.25) {
     const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
-    return this.startPerformanceLoop(deckId, loopStart, originTime, 60 / safeBpm, 'slip-roll');
+    const safeBeatFraction = Math.max(0.125, Math.min(1, beatFraction));
+    return this.startPerformanceLoop(deckId, loopStart, originTime, (60 / safeBpm) * safeBeatFraction, 'slip-roll');
   }
 
   public stopSlipRoll(deckId: 'A' | 'B') {

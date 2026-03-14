@@ -1,13 +1,17 @@
 'use client';
 
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback, useEffect, useMemo, useState } from 'react';
 import { AudioEngine } from '@/lib/audioEngine';
 import { useMixerStore } from '@/store/mixerStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
+import { useLibraryStore } from '@/store/libraryStore';
+import { useUIStore } from '@/store/uiStore';
 import { getCompatibleKeys } from '@/lib/harmonicKeys';
 import { MasterMeter } from '@/components/MasterMeter';
 import { buildSessionState, saveSessionState } from '@/lib/syncManager';
+import { useMIDIManager } from '@/hooks/useMIDIManager';
+import { buildAICrate } from '@/lib/aiCrate';
 import { useShallow } from 'zustand/react/shallow';
 
 type MeterTarget = 'A' | 'B' | 'Master';
@@ -230,6 +234,18 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   const cuesByTrack = useTrackCueStore((state) => state.cuesByTrack);
   const deckAState = useDeckStore((state) => state.deckA);
   const deckBState = useDeckStore((state) => state.deckB);
+  const libraryTracks = useLibraryStore((state) => state.tracks);
+  const { isLibraryVisible, toggleLibrary } = useUIStore(
+    useShallow((state) => ({
+      isLibraryVisible: state.isLibraryVisible,
+      toggleLibrary: state.toggleLibrary,
+    }))
+  );
+  const { isSupported: isMIDISupported, isConnected: isMIDIConnected, devices: midiDevices, lastMessage } = useMIDIManager();
+  const [cratePrompt, setCratePrompt] = useState('Show me tracks for a 124 BPM house set.');
+  const [isMainstage, setIsMainstage] = useState(false);
+  const restoreLibraryRef = useRef(false);
+  const aiCrate = useMemo(() => buildAICrate(libraryTracks, cratePrompt, { limit: compact ? 3 : 5, vaultOnly: true }), [compact, cratePrompt, libraryTracks]);
 
   // ── Chassis pulse ref ───────────────────────────────────────────────────
   const mixerOuterRef = useRef<HTMLDivElement>(null);
@@ -434,6 +450,21 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
   }, [vaultAmbience]);
 
   useEffect(() => {
+    if (isMainstage) {
+      restoreLibraryRef.current = isLibraryVisible;
+      if (isLibraryVisible) {
+        toggleLibrary();
+      }
+      return;
+    }
+
+    if (restoreLibraryRef.current && !isLibraryVisible) {
+      toggleLibrary();
+    }
+    restoreLibraryRef.current = false;
+  }, [isLibraryVisible, isMainstage, toggleLibrary]);
+
+  useEffect(() => {
     if (crossfaderCurve !== 'neural') {
       return undefined;
     }
@@ -514,6 +545,54 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
       ref={mixerOuterRef}
       className={compact ? 'h-full deck-chassis rounded-xl border border-studio-gold/20 p-2 flex flex-col items-center gap-3 transition-colors duration-300 touch-none select-none shadow-2xl overflow-hidden' : 'deck-chassis rounded-xl border border-studio-gold/20 p-3 flex flex-col items-center gap-4 transition-colors duration-300 touch-none select-none shadow-2xl'}
     >
+      <div className={compact ? 'w-full rounded-xl border border-studio-gold/20 bg-black/50 p-2' : 'w-full rounded-xl border border-studio-gold/20 bg-black/45 p-3'}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[8px] uppercase tracking-[0.3em] text-studio-gold/80">AI Prompter Crate</p>
+            <input
+              value={cratePrompt}
+              onChange={(event) => setCratePrompt(event.target.value)}
+              placeholder="Show me tracks for a 124 BPM house set."
+              className="mt-2 w-full rounded-lg border border-studio-gold/20 bg-[#050505] px-3 py-2 text-[11px] text-slate-100 outline-none transition focus:border-studio-gold focus:shadow-[0_0_12px_rgba(255,215,0,0.2)]"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsMainstage((current) => !current)}
+            className={isMainstage
+              ? 'self-start rounded-full border border-studio-crimson bg-studio-crimson/15 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-[0_0_14px_rgba(255,0,60,0.35)]'
+              : 'self-start rounded-full border border-studio-gold/30 bg-studio-gold/10 px-3 py-1 text-[10px] font-black uppercase tracking-[0.2em] text-studio-gold'}
+          >
+            {isMainstage ? 'Exit Mainstage' : 'Mainstage'}
+          </button>
+        </div>
+        <div className={compact ? 'mt-2 flex flex-col gap-2' : 'mt-3 flex flex-col gap-3'}>
+          <div className="flex flex-wrap items-center gap-2 text-[9px] uppercase tracking-[0.2em] text-slate-400">
+            <span className={isMIDIConnected ? 'rounded-full border border-studio-gold/40 bg-studio-gold/10 px-2 py-1 text-studio-gold' : 'rounded-full border border-white/10 bg-white/5 px-2 py-1'}>
+              {isMIDISupported ? (isMIDIConnected ? `MIDI ${midiDevices.length} Ready` : 'MIDI Standby') : 'MIDI Unavailable'}
+            </span>
+            {lastMessage ? <span className="oled-display text-[9px] text-slate-300">{lastMessage}</span> : null}
+          </div>
+          <div className="grid gap-2">
+            {aiCrate.matches.length > 0 ? aiCrate.matches.map(({ track, reasons, score }) => (
+              <div key={`${track.sourceId ?? track.id ?? track.title}-${score}`} className="flex items-center justify-between gap-3 rounded-lg border border-white/8 bg-white/5 px-3 py-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[11px] font-semibold text-slate-100">{track.title}</p>
+                  <p className="truncate text-[9px] uppercase tracking-[0.18em] text-slate-500">{track.artist} • {track.bpm} BPM • {track.key}</p>
+                </div>
+                <div className="text-right">
+                  <p className="oled-display text-[10px] text-studio-gold">{Math.round(score)}</p>
+                  <p className="max-w-[140px] text-[8px] uppercase tracking-[0.16em] text-slate-500">{reasons.join(' • ')}</p>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.18em] text-slate-500">
+                No vault matches yet. Try a BPM, Camelot key, or artist prompt.
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
       <div className={compact ? 'grid grid-cols-2 gap-3 w-full' : 'grid grid-cols-2 gap-4 w-full'}>
         <div className={compact ? 'flex flex-col items-center gap-2' : 'flex flex-col items-center gap-2'}>
           <EQKnob label="High" value={eqA.high} onChange={(val) => setEQ('A', 'high', val)} sparklineCanvasRef={sparklineAHighRef} />
@@ -636,9 +715,9 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
         <div className="mt-5 w-full flex items-center gap-3">
           <div className="flex-1 h-2 rounded-full bg-studio-black border border-studio-gold/30 relative overflow-hidden cursor-pointer"
                onClick={(e) => {
-                 const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                 handleAmbienceChange((e.clientX - rect.left) / rect.width);
-               }}>
+                  const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                  handleAmbienceChange((e.clientX - rect.left) / rect.width);
+                }}>
             <div className="absolute inset-y-0 left-0 bg-studio-gold/80 shadow-[0_0_10px_#D4AF37]" style={{ width: `${vaultAmbience * 100}%` }} />
           </div>
           <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-slate-300">
@@ -646,9 +725,27 @@ export function Mixer({ compact = false }: Readonly<{ compact?: boolean }>) {
             <span className="oled-display text-studio-gold">{Math.round(vaultAmbience * 100)}%</span>
           </div>
         </div>
-        <div className="mt-4 flex justify-center">
-          <MasterMeter />
-        </div>
+        {isMainstage ? (
+          <div className="mt-4 w-full rounded-2xl border border-studio-crimson/40 bg-[radial-gradient(circle_at_top,rgba(255,0,60,0.18),rgba(0,0,0,0.92))] px-4 py-5 shadow-[0_0_32px_rgba(255,0,60,0.16)]">
+            <div className="mb-4 text-center">
+              <p className="text-[9px] uppercase tracking-[0.35em] text-studio-crimson">Mainstage Master</p>
+              <p className="oled-display mt-2 text-sm text-studio-gold">Limiter Tap • 48kHz / 24-bit</p>
+            </div>
+            <div className="flex items-end justify-center gap-5">
+              <VUMeter deckId="Master" compact={compact} />
+              <div className="rounded-2xl border border-studio-gold/20 bg-black/40 px-6 py-4 shadow-[0_0_24px_rgba(255,215,0,0.12)]">
+                <div className="scale-[1.45]">
+                  <MasterMeter />
+                </div>
+              </div>
+              <VUMeter deckId="Master" compact={compact} />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 flex justify-center">
+            <MasterMeter />
+          </div>
+        )}
       </div>
     </div>
   );
