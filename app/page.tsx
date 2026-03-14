@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { Deck } from '@/components/Deck';
 import { AudioStats } from '@/components/AudioStats';
 import { Mixer } from '@/components/Mixer';
@@ -15,11 +15,10 @@ import { useShallow } from 'zustand/react/shallow';
 import { ChevronUp, Settings } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
-
 import { SettingsPanel } from '@/components/SettingsPanel';
 import { ViewControls } from '@/components/ViewControls';
+import { MobileNav, type MobileNavTab } from '@/components/MobileNav';
 
-type CompactPanel = 'deckA' | 'mixer' | 'deckB' | 'library';
 const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
 
 export default function Home() {
@@ -45,7 +44,7 @@ export default function Home() {
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCompactViewport, setIsCompactViewport] = useState(false);
-  const [activeCompactPanel, setActiveCompactPanel] = useState<CompactPanel>('deckA');
+  const [activeTab, setActiveTab] = useState<MobileNavTab>('DECK_A');
   const [isRemixDrawerOpen, setIsRemixDrawerOpen] = useState(false);
 
   useEffect(() => {
@@ -62,189 +61,145 @@ export default function Home() {
     void navigator.serviceWorker.register('/sw.js');
   }, []);
 
-  const compactPanels = useMemo(() => {
-    const panels: Array<{ id: CompactPanel; label: string; visible: boolean }> = [
-      { id: 'deckA', label: 'Deck A', visible: isDeckAVisible },
-      { id: 'mixer', label: 'Mixer', visible: isMixerVisible },
-      { id: 'deckB', label: 'Deck B', visible: isDeckBVisible },
-      { id: 'library', label: 'Library', visible: isLibraryVisible },
-    ];
-
-    return panels.filter((panel) => panel.visible);
-  }, [isDeckAVisible, isMixerVisible, isDeckBVisible, isLibraryVisible]);
-
-  const resolvedCompactPanel = compactPanels.some((panel) => panel.id === activeCompactPanel)
-    ? activeCompactPanel
-    : (compactPanels[0]?.id ?? 'deckA');
-
-  const renderPanelCard = (title: string, content: ReactNode, onSettings?: () => void) => (
-    <div className="flex h-full min-h-0 flex-col rounded-2xl border border-studio-gold/20 bg-studio-slate/90 shadow-2xl overflow-hidden">
-      <div className="flex items-center justify-between border-b border-studio-gold/20 px-3 py-2.5">
-        <h2 className="text-xs font-bold tracking-[0.24em] text-white uppercase">{title}</h2>
-        {onSettings ? (
-          <button
-            onClick={onSettings}
-            className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-            title="Settings"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        ) : null}
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden p-3">
-        {content}
-      </div>
-    </div>
-  );
-
-  const renderCompactPanel = () => {
-    switch (resolvedCompactPanel) {
-      case 'deckA':
-        return isDeckAVisible ? renderPanelCard('Deck A', <Deck deckId="A" compact />, undefined) : null;
-      case 'mixer':
-        return isMixerVisible ? renderPanelCard('Mixer', <Mixer compact />, () => setIsSettingsOpen(true)) : null;
-      case 'deckB':
-        return isDeckBVisible ? renderPanelCard('Deck B', <Deck deckId="B" compact />, undefined) : null;
-      case 'library':
-        return isLibraryVisible ? renderPanelCard('Library', <Library compact />, undefined) : null;
-      default:
-        return null;
-    }
-  };
-
   return (
-    <div className={isCompactViewport ? 'h-screen overflow-hidden flex flex-col bg-studio-black relative' : 'min-h-screen overflow-x-hidden flex flex-col bg-studio-black relative'}>
-        <main className="flex-1 flex flex-col relative min-h-0">
-          <ViewControls compact={isCompactViewport} onOpenSettings={() => setIsSettingsOpen(true)} />
-          <div className={isCompactViewport ? 'flex-1 flex flex-col gap-3 px-3 pb-3 pt-14 overflow-hidden min-w-0' : 'flex-1 flex flex-col gap-4 p-4 overflow-hidden min-w-0'}>
-            {isCompactViewport ? (
-              <>
-                {/* Waveforms fixed at top in stacked mode */}
-                {(isWaveformVisible || isPerformanceMode) && (
-                  <div className="flex-shrink-0">
-                    <ParallelWaveforms compact />
-                  </div>
-                )}
-                <div className="grid grid-cols-4 gap-2 flex-shrink-0">
-                  {compactPanels.map((panel) => (
-                    <button
-                      key={panel.id}
-                      type="button"
-                      onClick={() => setActiveCompactPanel(panel.id)}
-                      className={resolvedCompactPanel === panel.id
-                        ? 'rounded-xl border border-studio-gold bg-studio-gold/15 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-studio-gold shadow-[0_0_14px_rgba(212,175,55,0.18)]'
-                        : 'rounded-xl border border-white/10 bg-white/5 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-300'}
-                    >
-                      {panel.label}
-                    </button>
-                  ))}
+    <div
+      className="h-screen overflow-hidden flex flex-col bg-studio-black relative"
+      style={{ touchAction: 'none' }}
+    >
+      <main className="flex-1 flex flex-col relative min-h-0">
+        <ViewControls compact={isCompactViewport} onOpenSettings={() => setIsSettingsOpen(true)} />
+        <div className={
+          isCompactViewport
+            ? 'flex-1 flex flex-col gap-3 px-3 pb-[calc(3.5rem+env(safe-area-inset-bottom))] pt-14 overflow-hidden min-w-0'
+            : 'flex-1 flex flex-col gap-4 p-4 overflow-hidden min-w-0'
+        }>
+          {isCompactViewport ? (
+            <>
+              {/* Waveforms fixed at top in stacked mode */}
+              {(isWaveformVisible || isPerformanceMode) && (
+                <div className="flex-shrink-0">
+                  <ParallelWaveforms compact />
                 </div>
+              )}
 
-                <div className="min-h-0 flex-1">
-                  {renderCompactPanel()}
-                </div>
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 min-h-0 min-w-0 overflow-x-hidden">
-                {(isWaveformVisible || isPerformanceMode) && (
-                  <PerformanceLayout
-                    isPerformanceMode={isPerformanceMode}
-                    onTogglePerformanceMode={togglePerformanceMode}
-                    isWaveformVisible={isWaveformVisible}
-                    onToggleWaveform={toggleWaveform}
-                    isRemixOpen={isRemixDrawerOpen}
-                    onToggleRemix={() => setIsRemixDrawerOpen((prev) => !prev)}
-                    phraseBadges={(
-                      <>
-                        {deckA.isPlaying && deckA.bpm > 0 && (
-                          <PhraseDisplay bpm={deckA.bpm} deckId="A" label="A" />
-                        )}
-                        {deckB.isPlaying && deckB.bpm > 0 && (
-                          <PhraseDisplay bpm={deckB.bpm} deckId="B" label="B" />
-                        )}
-                      </>
-                    )}
-                    waveformContent={<ParallelWaveforms />}
-                    remixContent={<RemixGrid />}
-                  />
-                )}
-
-                <div className="flex-1 w-full max-w-[1920px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.9fr)_minmax(420px,1fr)] gap-6 min-h-0">
-                  <div className="h-full flex flex-col justify-center order-1 md:order-1">
-                    {isDeckAVisible && (
-                      <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
-                        <div className="p-4 border-b border-studio-gold/20 flex items-center">
-                          <h2 className="text-sm font-bold text-white tracking-tight">DECK A</h2>
-                        </div>
-                        <div className="p-4">
-                          <Deck deckId="A" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-full flex flex-col justify-center order-3 md:order-3 xl:order-2">
-                    {isMixerVisible && (
-                      <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
-                        <div className="p-4 border-b border-studio-gold/20 flex justify-between items-center">
-                          <h2 className="text-sm font-bold text-white tracking-tight">MIXER</h2>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setIsSettingsOpen(true)}
-                              className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                              title="Settings"
-                            >
-                              <Settings className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                        <div className="p-4">
-                          <Mixer />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="h-full flex flex-col justify-center order-2 md:order-2 xl:order-3">
-                    {isDeckBVisible && (
-                      <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
-                        <div className="p-4 border-b border-studio-gold/20 flex items-center">
-                          <h2 className="text-sm font-bold text-white tracking-tight">DECK B</h2>
-                        </div>
-                        <div className="p-4">
-                          <Deck deckId="B" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {(isLibraryVisible || isPerformanceMode) && (
-                  <div
-                    className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden transition-all duration-300 ${!isRemixDrawerOpen ? 'flex-1 min-h-[48vh]' : 'flex-shrink-0'}`}
-                    style={!isRemixDrawerOpen ? { minHeight: `calc(100vh - ${EXPANDED_LIBRARY_VERTICAL_OFFSET_PX}px)` } : undefined}
-                  >
-                    <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
-                      <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>
-                      {!isPerformanceMode && (
-                        <button
-                          onClick={toggleLibrary}
-                          className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                        >
-                          <ChevronUp className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                    <div className="p-0">
-                      <Library expanded={!isRemixDrawerOpen} />
-                    </div>
-                  </div>
-                )}
+              <div className={activeTab === 'DECK_A' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+                {isDeckAVisible && <Deck deckId="A" compact />}
               </div>
-            )}
-          </div>
-        </main>
-        {isAddMusicModalOpen && <AddMusicModal />}
-        <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-        <AudioStats />
-      </div>
+              <div className={activeTab === 'MIXER' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+                {isMixerVisible && <Mixer compact />}
+              </div>
+              <div className={activeTab === 'DECK_B' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
+                {isDeckBVisible && <Deck deckId="B" compact />}
+              </div>
+              <div
+                className={activeTab === 'LIBRARY' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}
+                style={{ touchAction: 'pan-y' }}
+              >
+                {isLibraryVisible && <Library compact />}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 flex flex-col gap-4 overflow-y-auto pr-1 min-h-0 min-w-0 overflow-x-hidden">
+              {(isWaveformVisible || isPerformanceMode) && (
+                <PerformanceLayout
+                  isPerformanceMode={isPerformanceMode}
+                  onTogglePerformanceMode={togglePerformanceMode}
+                  isWaveformVisible={isWaveformVisible}
+                  onToggleWaveform={toggleWaveform}
+                  isRemixOpen={isRemixDrawerOpen}
+                  onToggleRemix={() => setIsRemixDrawerOpen((prev) => !prev)}
+                  phraseBadges={(
+                    <>
+                      {deckA.isPlaying && deckA.bpm > 0 && (
+                        <PhraseDisplay bpm={deckA.bpm} deckId="A" label="A" />
+                      )}
+                      {deckB.isPlaying && deckB.bpm > 0 && (
+                        <PhraseDisplay bpm={deckB.bpm} deckId="B" label="B" />
+                      )}
+                    </>
+                  )}
+                  waveformContent={<ParallelWaveforms />}
+                  remixContent={<RemixGrid />}
+                />
+              )}
+
+              <div className="flex-1 w-full max-w-[1920px] mx-auto grid grid-cols-1 xl:grid-cols-[minmax(420px,1fr)_minmax(360px,0.9fr)_minmax(420px,1fr)] gap-6 min-h-0">
+                <div className="h-full flex flex-col justify-center order-1 md:order-1">
+                  {isDeckAVisible && (
+                    <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
+                      <div className="p-4 border-b border-studio-gold/20 flex items-center">
+                        <h2 className="text-sm font-bold text-white tracking-tight">DECK A</h2>
+                      </div>
+                      <div className="p-4">
+                        <Deck deckId="A" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="h-full flex flex-col justify-center order-3 md:order-3 xl:order-2">
+                  {isMixerVisible && (
+                    <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
+                      <div className="p-4 border-b border-studio-gold/20 flex justify-between items-center">
+                        <h2 className="text-sm font-bold text-white tracking-tight">MIXER</h2>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setIsSettingsOpen(true)}
+                            className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
+                            title="Settings"
+                          >
+                            <Settings className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                      <div className="p-4">
+                        <Mixer />
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="h-full flex flex-col justify-center order-2 md:order-2 xl:order-3">
+                  {isDeckBVisible && (
+                    <div className="bg-studio-slate/90 backdrop-blur-xl rounded-2xl border border-studio-gold/20 shadow-2xl overflow-visible">
+                      <div className="p-4 border-b border-studio-gold/20 flex items-center">
+                        <h2 className="text-sm font-bold text-white tracking-tight">DECK B</h2>
+                      </div>
+                      <div className="p-4">
+                        <Deck deckId="B" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {(isLibraryVisible || isPerformanceMode) && (
+                <div
+                  className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden transition-all duration-300 ${!isRemixDrawerOpen ? 'flex-1 min-h-[48vh]' : 'flex-shrink-0'}`}
+                  style={!isRemixDrawerOpen ? { minHeight: `calc(100vh - ${EXPANDED_LIBRARY_VERTICAL_OFFSET_PX}px)` } : undefined}
+                >
+                  <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
+                    <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>
+                    {!isPerformanceMode && (
+                      <button
+                        onClick={toggleLibrary}
+                        className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
+                      >
+                        <ChevronUp className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="p-0">
+                    <Library expanded={!isRemixDrawerOpen} />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+      {isCompactViewport && <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />}
+      {isAddMusicModalOpen && <AddMusicModal />}
+      <SettingsPanel isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+      <AudioStats />
+    </div>
   );
 }
