@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { Deck } from '@/components/Deck';
 import { AudioStats } from '@/components/AudioStats';
 import { Mixer } from '@/components/Mixer';
-import { Library } from '@/components/Library';
 import { ParallelWaveforms } from '@/components/ParallelWaveforms';
 import { PhraseDisplay } from '@/components/PhraseDisplay';
 import { RemixGrid } from '@/components/RemixGrid';
@@ -12,29 +11,27 @@ import { Layout as PerformanceLayout } from '@/components/Layout';
 import { useUIStore } from '@/store/uiStore';
 import { useDeckStore } from '@/store/deckStore';
 import { useShallow } from 'zustand/react/shallow';
-import { ChevronUp } from 'lucide-react';
 import { AddMusicModal } from '@/components/AddMusicModal';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { ViewControls } from '@/components/ViewControls';
 import { MobileNav } from '@/components/MobileNav';
-
-const EXPANDED_LIBRARY_VERTICAL_OFFSET_PX = 420;
+import { LibraryOverlay } from '@/components/LibraryOverlay';
 
 export default function Home() {
   useKeyboardShortcuts();
 
   const {
     isWaveformVisible,
-    isLibraryVisible,
     isDeckAVisible,
     isDeckBVisible,
     isMixerVisible,
     isAddMusicModalOpen,
     isPerformanceMode,
+    isLibraryOverlayOpen,
     activeTab,
     setActiveTab,
+    setIsLibraryOverlayOpen,
     toggleWaveform,
-    toggleLibrary,
     togglePerformanceMode,
   } = useUIStore();
 
@@ -91,12 +88,6 @@ export default function Home() {
               </div>
               <div className={activeTab === 'DECK_B' ? 'flex-1 min-h-0 overflow-hidden' : 'hidden'}>
                 {isDeckBVisible && <Deck deckId="B" compact />}
-              </div>
-              <div
-                className={activeTab === 'LIBRARY' ? 'flex-1 min-h-0 overflow-y-auto' : 'hidden'}
-                style={{ touchAction: 'pan-y' }}
-              >
-                {isLibraryVisible && <Library compact />}
               </div>
             </>
           ) : (
@@ -163,32 +154,21 @@ export default function Home() {
                 </div>
               </div>
 
-              {(isLibraryVisible || isPerformanceMode) && (
-                <div
-                  className={`bg-slate-900/40 backdrop-blur-xl rounded-2xl border border-white/5 shadow-2xl overflow-hidden transition-all duration-300 ${!isRemixDrawerOpen ? 'flex-1 min-h-[48vh]' : 'flex-shrink-0'}`}
-                  style={!isRemixDrawerOpen ? { minHeight: `calc(100vh - ${EXPANDED_LIBRARY_VERTICAL_OFFSET_PX}px)` } : undefined}
-                >
-                  <div className="p-4 border-b border-slate-800/50 flex justify-between items-center">
-                    <h2 className="text-sm font-bold text-white tracking-tight">LIBRARY</h2>
-                    {!isPerformanceMode && (
-                      <button
-                        onClick={toggleLibrary}
-                        className="p-1.5 hover:bg-slate-800/50 rounded-lg transition-colors text-slate-400 hover:text-white"
-                      >
-                        <ChevronUp className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                  <div className="p-0">
-                    <Library expanded={!isRemixDrawerOpen} />
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
       </main>
-      {isCompactViewport && <MobileNav activeTab={activeTab} onTabChange={setActiveTab} />}
+      {isCompactViewport && (
+        <MobileNav
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          onOpenLibrary={() => setIsLibraryOverlayOpen(true)}
+        />
+      )}
+      <LibraryOverlay
+        isOpen={isLibraryOverlayOpen}
+        onClose={() => setIsLibraryOverlayOpen(false)}
+      />
       {isAddMusicModalOpen && <AddMusicModal />}
       <AudioStats />
     </div>

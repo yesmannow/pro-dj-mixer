@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
-import { Plus, Layers, ListChecks, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List, Play } from 'lucide-react';
+import { Plus, UploadCloud, Loader2, FolderOpen, Trash2, Activity, Grid, List } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
@@ -123,13 +123,11 @@ export const Library = memo(function Library({ compact = false, expanded = false
   const [activeTab, setActiveTab] = useState<'tracks' | 'cue' | 'history'>('tracks');
   const [isDragging, setIsDragging] = useState(false);
   const [isSyncFlashing, setIsSyncFlashing] = useState(false);
-  const [openActionsForTrackId, setOpenActionsForTrackId] = useState<number | null>(null);
   const [holdVaultHud, setHoldVaultHud] = useState(false);
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
   const [sparklineCache, setSparklineCache] = useState<Record<string, number[]>>({});
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoadingLibrary, setIsLoadingLibrary] = useState(true);
-  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const analyzerWorkerRef = useRef<Worker | null>(null);
   // Reuse a single AudioContext for all BPM decode operations (lightweight, non-realtime)
   const decodeAudioCtxRef = useRef<AudioContext | null>(null);
@@ -148,7 +146,7 @@ export const Library = memo(function Library({ compact = false, expanded = false
     vaultTotalCount,
   } = useLibraryStore();
   const setAddMusicModalOpen = useUIStore(state => state.setAddMusicModalOpen);
-  const { isSmartMatchEnabled, toggleSmartMatch, isGridView, toggleGridView, isPerformanceMode } = useUIStore();
+  const { isSmartMatchEnabled, toggleSmartMatch, isGridView, toggleGridView, isPerformanceMode, setIsLibraryOverlayOpen } = useUIStore();
   const { addToCue, queueA, queueB, removeFromCue, clearCue, popNext } = useCueStore();
   const {
     crates,
@@ -300,19 +298,8 @@ export const Library = memo(function Library({ compact = false, expanded = false
   }, [deckB.track?.id, deckB.isPlaying, addToHistory]);
 
   useEffect(() => {
-    const handleClickAway = (e: MouseEvent) => {
-      if (!actionsMenuRef.current) return;
-      if (actionsMenuRef.current.contains(e.target as Node)) return;
-      setOpenActionsForTrackId(null);
-    };
-    document.addEventListener('mousedown', handleClickAway);
-    return () => document.removeEventListener('mousedown', handleClickAway);
-  }, []);
-
-  useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      setOpenActionsForTrackId(null);
       setIsFullscreen(false);
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -1081,108 +1068,32 @@ export const Library = memo(function Library({ compact = false, expanded = false
                       dense={expanded}
                     />
                   </td>
-                  <td className="px-3 py-1.5 text-right relative group/menu">
-                    <div ref={openActionsForTrackId === track.id ? actionsMenuRef : undefined} className="inline-block relative">
+                  <td className="px-3 py-1.5 text-right">
+                    <div className="inline-flex items-center gap-1.5">
                       <button
                         type="button"
-                        onClick={() => loadDeckFromRow(track)}
-                        className="mr-1.5 p-1.5 rounded-lg bg-slate-800/40 border border-slate-700 text-slate-400 hover:text-[#00FF00] hover:border-[#00FF00]/70 transition-all duration-200"
+                        onClick={() => {
+                          useDeckStore.getState().loadTrack('A', track);
+                          toast.success('Loaded to Deck A');
+                          setIsLibraryOverlayOpen(false);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest bg-accent/10 border border-accent/50 text-accent hover:bg-accent/20 hover:border-accent transition-all duration-150"
                         title="Load to Deck A"
                       >
-                        <Play className="w-3.5 h-3.5" />
+                        A
                       </button>
                       <button
                         type="button"
-                        aria-haspopup="menu"
-                        aria-expanded={openActionsForTrackId === track.id}
-                        onClick={() => setOpenActionsForTrackId((prev) => (prev === track.id ? null : (track.id ?? null)))}
-                        className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700 text-slate-400 hover:text-accent hover:border-accent transition-all duration-200"
+                        onClick={() => {
+                          useDeckStore.getState().loadTrack('B', track);
+                          toast.success('Loaded to Deck B');
+                          setIsLibraryOverlayOpen(false);
+                        }}
+                        className="px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest bg-studio-crimson/10 border border-studio-crimson/50 text-studio-crimson hover:bg-studio-crimson/20 hover:border-studio-crimson transition-all duration-150"
+                        title="Load to Deck B"
                       >
-                        <Plus className="w-4 h-4" />
+                        B
                       </button>
-                    {openActionsForTrackId === track.id && !(isSmartMatchEnabled && masterDeck.track && !isMatch) && (
-                      <div className="absolute right-0 top-full mt-1 w-56 bg-slate-900 border border-slate-800 rounded-xl shadow-2xl z-50 overflow-hidden">
-                        <div className="flex flex-col">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              useDeckStore.getState().loadTrack('A', track);
-                              toast.success('Added to Deck A');
-                              setOpenActionsForTrackId(null);
-                            }}
-                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left"
-                          >
-                            <Layers className="w-4 h-4" />
-                            Add to Deck A
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              useDeckStore.getState().loadTrack('B', track);
-                              toast.success('Added to Deck B');
-                              setOpenActionsForTrackId(null);
-                            }}
-                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
-                          >
-                            <Layers className="w-4 h-4 text-pink-500" />
-                            Add to Deck B
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const before = queueA.length;
-                              addToCue('A', track);
-                              const after = useCueStore.getState().queueA.length;
-                              if (after === before) toast('Already queued (Deck A)');
-                              else toast.success('Added to Cue A');
-                              setOpenActionsForTrackId(null);
-                            }}
-                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
-                          >
-                            <ListChecks className="w-4 h-4" />
-                            Add to Cue A
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const before = queueB.length;
-                              addToCue('B', track);
-                              const after = useCueStore.getState().queueB.length;
-                              if (after === before) toast('Already queued (Deck B)');
-                              else toast.success('Added to Cue B');
-                              setOpenActionsForTrackId(null);
-                            }}
-                            className="flex items-center gap-3 px-4 py-2.5 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left border-t border-slate-800/50"
-                          >
-                            <ListChecks className="w-4 h-4 text-pink-500" />
-                            Add to Cue B
-                          </button>
-
-                          {crates.length > 0 && (
-                            <div className="border-t border-slate-800/50 py-1">
-                              <div className="px-4 py-1 text-[9px] uppercase tracking-widest text-slate-500 font-bold">Add to Crate</div>
-                              {crates.map(crate => (
-                                <button
-                                  key={crate.id}
-                                  type="button"
-                                  onClick={async () => {
-                                    if (track.id && crate.id) {
-                                      await addTrackToCrate(crate.id, track.id);
-                                      toast.success(`Added to ${crate.name}`);
-                                      setOpenActionsForTrackId(null);
-                                    }
-                                  }}
-                                  className="flex items-center gap-3 w-full px-4 py-2 text-xs font-medium text-slate-300 hover:bg-accent/10 hover:text-accent transition-colors text-left"
-                                >
-                                  <FolderOpen className="w-3.5 h-3.5 opacity-50" />
-                                  {crate.name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
                     </div>
                   </td>
                 </tr>
