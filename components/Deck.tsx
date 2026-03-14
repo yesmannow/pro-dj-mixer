@@ -7,7 +7,8 @@ import Spline from '@splinetool/react-spline';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useDeckStore } from '@/store/deckStore';
 import { useLibraryStore } from '@/store/libraryStore';
-import { useTrackCueStore } from '@/store/trackCueStore';
+import { broadcastCue } from '@/lib/syncManager';
+import { getCueTrackHash, useTrackCueStore } from '@/store/trackCueStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { usePerformanceKeys } from '@/hooks/usePerformanceKeys';
 import { usePerformanceFX } from '@/hooks/usePerformanceFX';
@@ -225,6 +226,15 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
   const clearCueSlot = useCallback(async (slot: number) => {
     if (!track) return;
     await clearCue(track, slot);
+    broadcastCue(getCueTrackHash(track), {
+      slot,
+      time: 0,
+      type: 'hot',
+      timestamp: Date.now(),
+      color: '#00FF00',
+      name: `Cue ${slot}`,
+      deleted: true,
+    });
   }, [track, clearCue]);
 
   const { shiftHeld, pressedSlots } = usePerformanceKeys({

@@ -1,8 +1,28 @@
+export type StemType = 'drums' | 'inst' | 'vocals';
+export type NeuralStemGains = Record<StemType, { a: number; b: number }>;
+const NEURAL_STEM_GAIN = 0.33;
+const NEURAL_DRUMS_THRESHOLD = 0.25;
+const NEURAL_INST_THRESHOLD = 0.5;
+const NEURAL_VOCALS_THRESHOLD = 0.75;
+
+export const calculateNeuralGains = (xfade: number): NeuralStemGains => {
+  const norm = Math.max(0, Math.min(1, (xfade + 1) / 2));
+
+  // Drums and instruments intentionally hard-swap at their power points; timing smoothness is applied
+  // in the deck hook with sub-10ms/short ramps so the stems trade places without kick or tonal clashes.
+  return {
+    drums: norm > NEURAL_DRUMS_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
+    inst: norm > NEURAL_INST_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
+    vocals: norm > NEURAL_VOCALS_THRESHOLD ? { a: 0, b: NEURAL_STEM_GAIN } : { a: NEURAL_STEM_GAIN, b: 0 },
+  };
+};
+
 export class AudioEngine {
   private static instance: AudioEngine;
   public context: AudioContext;
   public masterGain: GainNode;
   public masterAnalyser: AnalyserNode;
+  private remixBus: GainNode;
   private limiter: DynamicsCompressorNode;
   private bunkerConvolver: ConvolverNode;
   private bunkerWetGain: GainNode;
@@ -107,7 +127,6 @@ export class AudioEngine {
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
-  private static readonly NEURAL_FADE_CURVE_EXPONENT = 0.72;
   private static readonly TARGET_RECORDING_SAMPLE_RATE = 48000;
   private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
 
@@ -131,6 +150,8 @@ export class AudioEngine {
     }
     this.masterGain = this.context.createGain();
     this.masterGain.gain.value = 0.7;
+    this.remixBus = this.context.createGain();
+    this.remixBus.gain.value = 0.72;
 
     this.masterAnalyser = this.context.createAnalyser();
     this.masterAnalyser.fftSize = 512;
@@ -160,6 +181,9 @@ export class AudioEngine {
 
     this.bunkerDryGain.connect(this.limiter);
     this.bunkerWetGain.connect(this.limiter);
+    // Remix bus is intentionally post-master-FX but pre-limiter so captured loops bypass deck/master FX
+    // coloration while still landing inside the final safety stage.
+    this.remixBus.connect(this.limiter);
     this.limiter.connect(this.context.destination);
 
     // Recording tap: connect the final post-limiter signal to the MediaStreamDestination
@@ -638,11 +662,11 @@ export class AudioEngine {
     return { rms: Math.sqrt(sum / arr.length), peak };
   }
 
-  public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {
+  public setStemMute(deckId: 'A' | 'B', stemType: StemType, isMuted: boolean) {
     this.setStemLevel(deckId, stemType, isMuted ? 0 : 1);
   }
 
-  public setStemLevel(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', level: number) {
+  public setStemLevel(deckId: 'A' | 'B', stemType: StemType, level: number) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
     const clamped = Math.max(0, Math.min(1, level));
@@ -650,7 +674,28 @@ export class AudioEngine {
     deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
   }
 
-  public setStemFXSend(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', sendAmount: number) {
+  public setStemContribution(
+    deckId: 'A' | 'B',
+    stemType: StemType,
+    contribution: number,
+    options?: { rampSeconds?: number; mode?: 'target' | 'linear' }
+  ) {
+    const deckStemGains = this.stemGains[deckId];
+    if (!deckStemGains) return;
+    const clamped = Math.max(0, Math.min(AudioEngine.STEM_UNITY_CONTRIBUTION, contribution));
+    const now = this.context.currentTime;
+    const rampSeconds = Math.max(0, options?.rampSeconds ?? 0.01);
+    const gain = deckStemGains[stemType].gain;
+    gain.cancelScheduledValues(now);
+    gain.setValueAtTime(gain.value, now);
+    if (options?.mode === 'linear') {
+      gain.linearRampToValueAtTime(clamped, now + rampSeconds);
+      return;
+    }
+    gain.setTargetAtTime(clamped, now, Math.max(0.001, rampSeconds));
+  }
+
+  public setStemFXSend(deckId: 'A' | 'B', stemType: StemType, sendAmount: number) {
     const deckDirectGains = this.stemDirectGains[deckId];
     const deckFxGains = this.stemFxGains[deckId];
     if (!deckDirectGains || !deckFxGains) return;
@@ -783,6 +828,10 @@ export class AudioEngine {
     return this.recordingDestination ? this.recordingDestination.stream : null;
   }
 
+  public getRemixBus(): GainNode {
+    return this.remixBus;
+  }
+
   public getRecordingProfile() {
     return {
       sampleRate: this.context.sampleRate,
@@ -836,9 +885,8 @@ export class AudioEngine {
     }
 
     if (curve === 'neural') {
-      const softened = 0.5 - 0.5 * Math.cos(x * Math.PI);
-      const gainA = Math.pow(1 - softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
-      const gainB = Math.pow(softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
+      const gainA = Math.sqrt(1 - x);
+      const gainB = Math.sqrt(x);
       return { gainA, gainB };
     }
 

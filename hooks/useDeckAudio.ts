@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useDeckStore } from '@/store/deckStore';
 import { useMixerStore } from '@/store/mixerStore';
-import { AudioEngine } from '@/lib/audioEngine';
+import { AudioEngine, calculateNeuralGains } from '@/lib/audioEngine';
 import { useShallow } from 'zustand/react/shallow';
 
 interface AudioDataSnapshot {
@@ -130,19 +130,31 @@ export function useDeckAudio(deckId: 'A' | 'B') {
 
       if (eqChainRef.current) {
         const neuralPosition = (crossfader + 1) / 2;
+        const neuralStemGains = calculateNeuralGains(crossfader);
+        const gainKey = deckId === 'A' ? 'a' : 'b';
         const neuralLowTrim =
           crossfaderCurve === 'neural'
             ? deckId === 'A'
               ? Math.max(0, (neuralPosition - 0.6) / 0.4)
               : Math.max(0, (0.4 - neuralPosition) / 0.4)
             : 0;
-        const vocalBlend =
-          crossfaderCurve === 'neural' && deckId === 'A'
-            ? 1 - Math.max(0, Math.min(1, neuralPosition / 0.4))
-            : 1;
-        engine.setStemLevel(deckId, 'vocals', deckState.stems.vocals ? vocalBlend : 0);
-        engine.setStemLevel(deckId, 'drums', deckState.stems.drums ? 1 : 0);
-        engine.setStemLevel(deckId, 'inst', deckState.stems.inst ? 1 : 0);
+        if (crossfaderCurve === 'neural') {
+          engine.setStemContribution(deckId, 'drums', deckState.stems.drums ? neuralStemGains.drums[gainKey] : 0, {
+            rampSeconds: 0.008,
+            mode: 'linear',
+          });
+          engine.setStemContribution(deckId, 'inst', deckState.stems.inst ? neuralStemGains.inst[gainKey] : 0, {
+            rampSeconds: 0.01,
+          });
+          engine.setStemContribution(deckId, 'vocals', deckState.stems.vocals ? neuralStemGains.vocals[gainKey] : 0, {
+            rampSeconds: 0.5,
+            mode: 'linear',
+          });
+        } else {
+          engine.setStemLevel(deckId, 'vocals', deckState.stems.vocals ? 1 : 0);
+          engine.setStemLevel(deckId, 'drums', deckState.stems.drums ? 1 : 0);
+          engine.setStemLevel(deckId, 'inst', deckState.stems.inst ? 1 : 0);
+        }
 
         const mapEQ = (val: number) => val < 0 ? val * 24 : val * 6;
         const now = engine.context.currentTime;
