@@ -3,12 +3,13 @@ import { db, CuePoint, Track } from '@/lib/db';
 import { useDeckStore } from '@/store/deckStore';
 
 type CueTrackRef = number | Partial<Pick<Track, 'id' | 'sourceId' | 'audioUrl' | 'title' | 'artist' | 'duration'>>;
+type CueMetadata = Partial<Pick<CuePoint, 'label' | 'color'>>;
 const CUE_HASH_SEPARATOR = '\x1F';
 
 const normalizeCues = (cues: CuePoint[]) => cues.slice().sort((a, b) => a.slot - b.slot);
 const getTrackId = (track: CueTrackRef) => (typeof track === 'number' ? track : track.id);
 
-const getCueTrackHash = (track: CueTrackRef) => {
+export const getCueTrackHash = (track: CueTrackRef) => {
   if (typeof track === 'number') {
     return `track-id:${track}`;
   }
@@ -29,6 +30,15 @@ const getCueTrackHash = (track: CueTrackRef) => {
 };
 
 const getCueStorageKey = (track: CueTrackRef) => `pro-dj-mixer:cues:${getCueTrackHash(track)}`;
+
+export const buildCueCloudEntries = (cues: CuePoint[]) => normalizeCues(cues).map((cue) => ({
+  slot: cue.slot,
+  time: cue.time,
+  type: cue.type,
+  timestamp: cue.updatedAt,
+  color: cue.color ?? '#FFD700',
+  name: cue.label ?? `Cue ${cue.slot}`,
+}));
 
 const readLocalCues = (track: CueTrackRef) => {
   if (typeof window === 'undefined') return [] as CuePoint[];
@@ -61,7 +71,7 @@ interface TrackCueState {
   
   // Actions
   loadCues: (track: CueTrackRef) => Promise<void>;
-  setCue: (track: CueTrackRef, slot: number, time: number, type: 'hot' | 'memory') => Promise<void>;
+  setCue: (track: CueTrackRef, slot: number, time: number, type: 'hot' | 'memory', metadata?: CueMetadata) => Promise<void>;
   clearCue: (track: CueTrackRef, slot: number) => Promise<void>;
   autoGenerateCues: (deckId: 'A' | 'B', bpm: number) => Promise<void>;
   getCues: (track: CueTrackRef) => CuePoint[];
@@ -116,7 +126,7 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
     }
   },
 
-  setCue: async (track: CueTrackRef, slot: number, time: number, type: 'hot' | 'memory') => {
+  setCue: async (track: CueTrackRef, slot: number, time: number, type: 'hot' | 'memory', metadata?: CueMetadata) => {
     const trackHash = getCueTrackHash(track);
     const trackId = getTrackId(track);
     const updatedAt = Date.now();
@@ -124,6 +134,8 @@ export const useTrackCueStore = create<TrackCueState>((set, get) => ({
       slot,
       time,
       type,
+      ...(metadata?.label ? { label: metadata.label } : {}),
+      ...(metadata?.color ? { color: metadata.color } : {}),
       updatedAt
     };
 

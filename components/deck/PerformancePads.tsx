@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
 import { MagneticButton } from '@/components/ui/MagneticButton';
+import type { PerformancePadMode } from '@/hooks/usePerformanceFX';
 
 interface CuePointView {
   slot: number;
@@ -15,6 +16,8 @@ interface PerformancePadsProps {
   compact?: boolean;
   accentColor?: string;
   accentRgb?: string;
+  padMode: PerformancePadMode;
+  onPadModeChange: (mode: PerformancePadMode) => void;
   onPadHold: (slot: number) => void;
   onPadRelease: (slot: number) => void;
   onClearCue: (slot: number) => void;
@@ -34,6 +37,8 @@ export function PerformancePads({
   compact = false,
   accentColor,
   accentRgb,
+  padMode,
+  onPadModeChange,
   onPadHold,
   onPadRelease,
   onClearCue,
@@ -58,6 +63,33 @@ export function PerformancePads({
       >
         AUTO 10-BAR
       </button>
+
+      <div className={compact ? 'grid grid-cols-3 gap-1.5' : 'grid grid-cols-3 gap-2'}>
+        {([
+          ['hot', 'HOT'],
+          ['slip-roll', 'ROLL'],
+          ['beat-break', 'BREAK'],
+        ] as const).map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => onPadModeChange(mode)}
+            className={clsx(
+              'rounded-md border font-black tracking-[0.18em] transition-all',
+              compact ? 'h-7 text-[9px]' : 'h-8 text-[10px]',
+              padMode === mode
+                ? 'text-studio-black shadow-[0_0_16px_rgba(255,215,0,0.38)] neon-glow'
+                : 'text-slate-300 bg-[#090909] hover:text-white'
+            )}
+            style={{
+              borderColor: accentColor ?? '#FFD700',
+              backgroundColor: padMode === mode ? accentColor ?? '#FFD700' : '#090909',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
 
       <div className={compact ? 'mpc-grid-container grid grid-cols-4 gap-1.5 p-2' : 'mpc-grid-container grid grid-cols-4 gap-2'}>
         {[0, 1, 2, 3, 4, 5, 6, 7].map((slot) => {

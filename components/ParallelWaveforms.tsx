@@ -24,6 +24,8 @@ const DEFAULT_RGB = 80;
 
 /** Beats per phrase marker (4 bars × 4 beats = 16 beats) */
 const BEATS_PER_PHRASE_MARKER = 16;
+/** Beat-phase tolerance for the ghost playhead lock indicator (~20ms at 120 BPM because 0.04 × 500ms = 20ms). */
+const PHASE_ALIGNMENT_TOLERANCE = 0.04;
 
 /**
  * Maximum width for the off-screen background canvas.
@@ -233,6 +235,49 @@ function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: numb
   ctx.shadowBlur = 0;
 }
 
+function getPhaseAlignment(
+  playheadA: number,
+  bpmA: number,
+  playheadB: number,
+  bpmB: number,
+): { offset: number; isAligned: boolean } {
+  const safeBpmA = Number.isFinite(bpmA) && bpmA > 0 ? bpmA : 120;
+  const safeBpmB = Number.isFinite(bpmB) && bpmB > 0 ? bpmB : 120;
+  const beatFracA = ((playheadA / (60 / safeBpmA)) % 1 + 1) % 1;
+  const beatFracB = ((playheadB / (60 / safeBpmB)) % 1 + 1) % 1;
+  const rawOffset = Math.abs(beatFracA - beatFracB);
+  const offset = Math.min(rawOffset, 1 - rawOffset);
+  return {
+    offset,
+    isAligned: offset < PHASE_ALIGNMENT_TOLERANCE,
+  };
+}
+
+function drawGhostPlayhead(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  yOffset: number,
+  height: number,
+  relativeSeconds: number,
+  pixelsPerSecond: number,
+  aligned: boolean,
+): void {
+  const x = width / 2 + relativeSeconds * pixelsPerSecond;
+  if (x < 0 || x > width) return;
+
+  ctx.save();
+  ctx.strokeStyle = aligned ? 'rgba(34,197,94,0.85)' : 'rgba(255,0,60,0.85)';
+  ctx.shadowColor = aligned ? 'rgba(34,197,94,0.95)' : 'rgba(255,0,60,0.95)';
+  ctx.shadowBlur = 12;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 6]);
+  ctx.beginPath();
+  ctx.moveTo(x, yOffset + 2);
+  ctx.lineTo(x, yOffset + height - 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -372,6 +417,7 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
       const height = canvas.height;
       const halfHeight = height / 2;
       const pixelsPerSecond = zoom;
+      const phaseAlignment = getPhaseAlignment(playheadA, snapA.bpm, playheadB, snapB.bpm);
 
       const ctx = canvas.getContext('2d');
       if (!ctx) {
@@ -481,7 +527,11 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
       ctx.fillRect(0, halfHeight - 1, width, 2);
       ctx.restore();
 
-      // 5. Playhead — always on top of everything.
+      // 5. Ghost playheads + phase lock indicator — drawn from the opposite deck without React state.
+      drawGhostPlayhead(ctx, width, 0, halfHeight, playheadB - playheadA, pixelsPerSecond, phaseAlignment.isAligned);
+      drawGhostPlayhead(ctx, width, halfHeight, halfHeight, playheadA - playheadB, pixelsPerSecond, phaseAlignment.isAligned);
+
+      // 6. Playhead — always on top of everything.
       drawPlayhead(ctx, width, height);
 
       animationFrameId = requestAnimationFrame(renderLoop);

@@ -25,6 +25,7 @@ export class AudioEngine {
     isPlaying: boolean;
     playbackRate: number;
     pauseTime: number;
+    currentTime: number;
     keyLockEnabled: boolean;
     onSourceSwap?: (source: AudioBufferSourceNode | null) => void;
     onPauseTime?: (time: number) => void;
@@ -37,6 +38,7 @@ export class AudioEngine {
       isPlaying: false,
       playbackRate: 1,
       pauseTime: 0,
+      currentTime: 0,
       keyLockEnabled: false,
     },
     B: {
@@ -47,6 +49,7 @@ export class AudioEngine {
       isPlaying: false,
       playbackRate: 1,
       pauseTime: 0,
+      currentTime: 0,
       keyLockEnabled: false,
     },
   };
@@ -72,15 +75,39 @@ export class AudioEngine {
     inst: GainNode;
     vocals: GainNode;
   }>> = {};
+  private stemDirectGains: Partial<Record<'A' | 'B', {
+    drums: GainNode;
+    inst: GainNode;
+    vocals: GainNode;
+  }>> = {};
+  private stemFxGains: Partial<Record<'A' | 'B', {
+    drums: GainNode;
+    inst: GainNode;
+    vocals: GainNode;
+  }>> = {};
   private stemChains: Partial<Record<'A' | 'B', {
     input: GainNode;
     output: GainNode;
+    fxOutput: GainNode;
   }>> = {};
+  private performanceLoops: Record<'A' | 'B', {
+    mode: 'slip-roll' | 'beat-break' | null;
+    originTime: number;
+    loopStart: number;
+    loopDuration: number;
+    startedAtContextTime: number;
+    wasPlaying: boolean;
+  }> = {
+    A: { mode: null, originTime: 0, loopStart: 0, loopDuration: 0, startedAtContextTime: 0, wasPlaying: false },
+    B: { mode: null, originTime: 0, loopStart: 0, loopDuration: 0, startedAtContextTime: 0, wasPlaying: false },
+  };
   private static readonly STEM_COUNT = 3;
   private static readonly STEM_UNITY_CONTRIBUTION = 0.33;
   private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
+  private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
+  private static readonly NEURAL_FADE_CURVE_EXPONENT = 0.72;
 
   private constructor() {
     const AudioContextCtor = (globalThis.window.AudioContext || (globalThis.window as any).webkitAudioContext) as typeof AudioContext;
@@ -171,15 +198,16 @@ export class AudioEngine {
     payload: Partial<{
       buffer: AudioBuffer | null;
       source: AudioBufferSourceNode | null;
-      stemInput: GainNode | null;
-      deckGain: GainNode | null;
-      isPlaying: boolean;
-      playbackRate: number;
-      pauseTime: number;
-      keyLockEnabled: boolean;
-      onSourceSwap?: (source: AudioBufferSourceNode | null) => void;
-      onPauseTime?: (time: number) => void;
-    }>
+        stemInput: GainNode | null;
+        deckGain: GainNode | null;
+        isPlaying: boolean;
+        playbackRate: number;
+        pauseTime: number;
+        currentTime: number;
+        keyLockEnabled: boolean;
+        onSourceSwap?: (source: AudioBufferSourceNode | null) => void;
+        onPauseTime?: (time: number) => void;
+      }>
   ) {
     this.decks[deckId] = {
       ...this.decks[deckId],
@@ -268,29 +296,57 @@ export class AudioEngine {
 
     const input = this.context.createGain();
     const output = this.context.createGain();
+    const fxOutput = this.context.createGain();
 
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
     const vocalsGain = existingGains?.vocals ?? this.context.createGain();
+    const drumsDirectGain = this.context.createGain();
+    const instDirectGain = this.context.createGain();
+    const vocalsDirectGain = this.context.createGain();
+    const drumsFxGain = this.context.createGain();
+    const instFxGain = this.context.createGain();
+    const vocalsFxGain = this.context.createGain();
 
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
       gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
+    });
+    // Before Phase 7 every stem branch fed the deck FX bus, so deck FX always processed the full deck.
+    // Start in that same all-to-FX posture so existing mixes still sound identical until the user
+    // deliberately drops specific stems back to the dry path via the new FX Sends controls.
+    [drumsDirectGain, instDirectGain, vocalsDirectGain].forEach((gainNode) => {
+      gainNode.gain.value = 0;
+    });
+    [drumsFxGain, instFxGain, vocalsFxGain].forEach((gainNode) => {
+      gainNode.gain.value = 1;
     });
 
     // Balance the summed stem path so all three active stems land near unity
     // (STEM_COUNT × STEM_UNITY_CONTRIBUTION ≈ 1.0, so each active stem contributes one-third),
     // which keeps the deck input from clipping before EQ, FX, and the master bus.
-    // Wire: input -> [drums | inst | vocals] GainNodes -> output
+    // Wire: input -> [drums | inst | vocals] GainNodes -> [direct + FX send] -> [output + fxOutput]
     input.connect(drumsGain);
     input.connect(instGain);
     input.connect(vocalsGain);
 
-    drumsGain.connect(output);
-    instGain.connect(output);
-    vocalsGain.connect(output);
+    drumsGain.connect(drumsDirectGain);
+    drumsGain.connect(drumsFxGain);
+    instGain.connect(instDirectGain);
+    instGain.connect(instFxGain);
+    vocalsGain.connect(vocalsDirectGain);
+    vocalsGain.connect(vocalsFxGain);
+
+    drumsDirectGain.connect(output);
+    instDirectGain.connect(output);
+    vocalsDirectGain.connect(output);
+    drumsFxGain.connect(fxOutput);
+    instFxGain.connect(fxOutput);
+    vocalsFxGain.connect(fxOutput);
 
     this.stemGains[deckId] = { drums: drumsGain, inst: instGain, vocals: vocalsGain };
-    this.stemChains[deckId] = { input, output };
+    this.stemDirectGains[deckId] = { drums: drumsDirectGain, inst: instDirectGain, vocals: vocalsDirectGain };
+    this.stemFxGains[deckId] = { drums: drumsFxGain, inst: instFxGain, vocals: vocalsFxGain };
+    this.stemChains[deckId] = { input, output, fxOutput };
 
     return this.stemChains[deckId]!;
   }
@@ -567,10 +623,26 @@ export class AudioEngine {
   }
 
   public setStemMute(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', isMuted: boolean) {
+    this.setStemLevel(deckId, stemType, isMuted ? 0 : 1);
+  }
+
+  public setStemLevel(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', level: number) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const target = isMuted ? 0 : AudioEngine.STEM_UNITY_CONTRIBUTION;
+    const clamped = Math.max(0, Math.min(1, level));
+    const target = AudioEngine.STEM_UNITY_CONTRIBUTION * clamped;
     deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
+  }
+
+  public setStemFXSend(deckId: 'A' | 'B', stemType: 'drums' | 'inst' | 'vocals', sendAmount: number) {
+    const deckDirectGains = this.stemDirectGains[deckId];
+    const deckFxGains = this.stemFxGains[deckId];
+    if (!deckDirectGains || !deckFxGains) return;
+
+    const clamped = Math.max(0, Math.min(1, sendAmount));
+    const now = this.context.currentTime;
+    deckDirectGains[stemType].gain.setTargetAtTime(1 - clamped, now, 0.02);
+    deckFxGains[stemType].gain.setTargetAtTime(clamped, now, 0.02);
   }
 
   public toggleKeyLock(deckId: 'A' | 'B') {
@@ -657,12 +729,25 @@ export class AudioEngine {
       stemGains.inst.disconnect();
       stemGains.vocals.disconnect();
     }
+    const stemDirectGains = this.stemDirectGains[deckId];
+    if (stemDirectGains) {
+      stemDirectGains.drums.disconnect();
+      stemDirectGains.inst.disconnect();
+      stemDirectGains.vocals.disconnect();
+    }
+    const stemFxGains = this.stemFxGains[deckId];
+    if (stemFxGains) {
+      stemFxGains.drums.disconnect();
+      stemFxGains.inst.disconnect();
+      stemFxGains.vocals.disconnect();
+    }
 
     // Disconnect the stem chain input/output.
     const stemChain = this.stemChains[deckId];
     if (stemChain) {
       stemChain.input.disconnect();
       stemChain.output.disconnect();
+      stemChain.fxOutput.disconnect();
     }
 
     // Disconnect the per-deck analyser.
@@ -711,7 +796,7 @@ export class AudioEngine {
 
   public getCrossfaderGains(
     crossfaderValue: number,
-    curve: 'blend' | 'cut' = 'blend'
+    curve: 'blend' | 'cut' | 'neural' = 'blend'
   ): { gainA: number; gainB: number } {
     // crossfaderValue ranges from -1 (Deck A) to 1 (Deck B)
     const x = (crossfaderValue + 1) / 2; // 0 -> 1
@@ -726,9 +811,156 @@ export class AudioEngine {
       return { gainA: 1, gainB: 1 };
     }
 
+    if (curve === 'neural') {
+      const softened = 0.5 - 0.5 * Math.cos(x * Math.PI);
+      const gainA = Math.pow(1 - softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
+      const gainB = Math.pow(softened, AudioEngine.NEURAL_FADE_CURVE_EXPONENT);
+      return { gainA, gainB };
+    }
+
     // Equal power blend curve
     const gainA = Math.cos(x * 0.5 * Math.PI);
     const gainB = Math.cos((1 - x) * 0.5 * Math.PI);
     return { gainA, gainB };
+  }
+
+  private startPerformanceLoop(
+    deckId: 'A' | 'B',
+    loopStart: number,
+    originTime: number,
+    loopDuration: number,
+    mode: 'slip-roll' | 'beat-break',
+    playbackRateMultiplier = 1
+  ) {
+    const deck = this.decks[deckId];
+    if (!deck?.buffer || !deck.stemInput || !deck.deckGain) return null;
+
+    const now = this.context.currentTime;
+    const safeLoopStart = Math.max(0, Math.min(loopStart, deck.buffer.duration));
+    const safeLoopDuration = Math.max(
+      AudioEngine.MIN_PERFORMANCE_LOOP_DURATION,
+      Math.min(
+        loopDuration,
+        Math.max(AudioEngine.MIN_PERFORMANCE_LOOP_DURATION, deck.buffer.duration - safeLoopStart)
+      )
+    );
+    const freshSource = this.createPitchLockedSource(deckId, deck.buffer);
+
+    this.performanceLoops[deckId] = {
+      mode,
+      originTime: Math.max(0, Math.min(originTime, deck.buffer.duration)),
+      loopStart: safeLoopStart,
+      loopDuration: safeLoopDuration,
+      startedAtContextTime: now + 0.002,
+      wasPlaying: deck.isPlaying,
+    };
+
+    deck.deckGain.gain.cancelScheduledValues(now);
+    deck.deckGain.gain.setValueAtTime(deck.deckGain.gain.value, now);
+    deck.deckGain.gain.linearRampToValueAtTime(0, now + 0.002);
+
+    if (deck.source) {
+      try {
+        deck.source.stop(now + 0.002);
+      } catch {
+        // Source might already be stopped
+      }
+      deck.source.disconnect();
+    }
+
+    freshSource.loop = true;
+    freshSource.loopStart = safeLoopStart;
+    freshSource.loopEnd = Math.min(deck.buffer.duration, safeLoopStart + safeLoopDuration);
+    freshSource.playbackRate.value = deck.playbackRate * playbackRateMultiplier;
+    freshSource.connect(deck.stemInput);
+    freshSource.start(now + 0.002, safeLoopStart);
+
+    deck.deckGain.gain.setValueAtTime(0, now + 0.002);
+    deck.deckGain.gain.linearRampToValueAtTime(1, now + 0.004);
+
+    deck.source = freshSource;
+    deck.isPlaying = true;
+    deck.pauseTime = safeLoopStart;
+    deck.currentTime = safeLoopStart;
+    deck.onSourceSwap?.(freshSource);
+    deck.onPauseTime?.(safeLoopStart);
+
+    return freshSource;
+  }
+
+  public startSlipRoll(deckId: 'A' | 'B', loopStart: number, originTime: number, bpm: number) {
+    const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+    return this.startPerformanceLoop(deckId, loopStart, originTime, 60 / safeBpm, 'slip-roll');
+  }
+
+  public stopSlipRoll(deckId: 'A' | 'B') {
+    this.stopPerformanceLoop(deckId);
+  }
+
+  public startBeatBreak(deckId: 'A' | 'B', loopStart: number, originTime: number, bpm: number) {
+    const safeBpm = Number.isFinite(bpm) && bpm > 0 ? bpm : 120;
+    // Slow the loop slightly for a classic beat-break tug before slipping back to the live timeline.
+    return this.startPerformanceLoop(deckId, loopStart, originTime, (60 / safeBpm) * 0.5, 'beat-break', 0.92);
+  }
+
+  public stopBeatBreak(deckId: 'A' | 'B') {
+    this.stopPerformanceLoop(deckId);
+  }
+
+  private stopPerformanceLoop(deckId: 'A' | 'B') {
+    const deck = this.decks[deckId];
+    const loop = this.performanceLoops[deckId];
+    if (!deck?.deckGain) return;
+
+    const now = this.context.currentTime;
+    const elapsed = Math.max(0, now - loop.startedAtContextTime);
+    const resumeTime = deck.buffer
+      ? Math.max(0, Math.min(loop.originTime + elapsed * deck.playbackRate, deck.buffer.duration))
+      : loop.originTime;
+
+    deck.deckGain.gain.cancelScheduledValues(now);
+    deck.deckGain.gain.setValueAtTime(deck.deckGain.gain.value, now);
+    deck.deckGain.gain.linearRampToValueAtTime(0, now + 0.002);
+
+    if (deck.source) {
+      try {
+        deck.source.stop(now + 0.002);
+      } catch {
+        // ignore
+      }
+      deck.source.disconnect();
+      deck.source = null;
+      deck.onSourceSwap?.(null);
+    }
+
+    if (loop.wasPlaying && deck.buffer && deck.stemInput) {
+      const resumeSource = this.createPitchLockedSource(deckId, deck.buffer);
+      resumeSource.playbackRate.value = deck.playbackRate;
+      resumeSource.connect(deck.stemInput);
+      resumeSource.start(now + 0.002, resumeTime);
+
+      deck.deckGain.gain.setValueAtTime(0, now + 0.002);
+      deck.deckGain.gain.linearRampToValueAtTime(1, now + 0.004);
+      deck.source = resumeSource;
+      deck.isPlaying = true;
+      deck.pauseTime = resumeTime;
+      deck.currentTime = resumeTime;
+      deck.onSourceSwap?.(resumeSource);
+      deck.onPauseTime?.(resumeTime);
+    } else {
+      deck.isPlaying = false;
+      deck.pauseTime = resumeTime;
+      deck.currentTime = resumeTime;
+      deck.onPauseTime?.(resumeTime);
+    }
+
+    this.performanceLoops[deckId] = {
+      mode: null,
+      originTime: 0,
+      loopStart: 0,
+      loopDuration: 0,
+      startedAtContextTime: 0,
+      wasPlaying: false,
+    };
   }
 }
