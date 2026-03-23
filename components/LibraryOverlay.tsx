@@ -79,7 +79,7 @@ export function LibraryOverlay({ isOpen, onClose }: LibraryOverlayProps) {
 
         {/* Library content */}
         <div className="flex-1 min-h-0 overflow-hidden" style={{ touchAction: 'pan-y' }}>
-          <Library expanded />
+          <Library />
         </div>
       </div>
     </div>

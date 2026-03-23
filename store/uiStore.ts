@@ -6,6 +6,7 @@ export type CrossfaderCurve = 'blend' | 'cut' | 'neural';
 export type WaveformStyle    = 'bars' | 'line' | 'mirror';
 export type BpmDisplayMode   = 'integer' | 'decimal' | 'both';
 export type LibraryLayout    = 'list' | 'grid' | 'compact';
+export type MobileNavTab     = 'DECK_A' | 'MIXER' | 'DECK_B';
 
 interface UIState {
   // ── Panel Visibility ───────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ interface UIState {
   isSmartMatchEnabled: boolean;
   isGridView:          boolean;
   libraryLayout:       LibraryLayout;
+  isLibraryOverlayOpen: boolean;
 
   // ── Deck Defaults (applied on next deck load) ──────────────────────────────
   defaultVinylMode:    boolean;   // true = scratch, false = nudge
@@ -48,6 +50,7 @@ interface UIState {
   // ── Performance / Feature Flags ────────────────────────────────────────────
   isPerformanceMode:   boolean;   // hides library, collapses waveforms
   isShiftHeld:         boolean;
+  activeTab:           MobileNavTab;
 
   // ── Actions ────────────────────────────────────────────────────────────────
   toggleWaveform:       () => void;
@@ -62,6 +65,7 @@ interface UIState {
   toggleSmartMatch:     () => void;
   toggleGridView:       () => void;
   setLibraryLayout:     (layout: LibraryLayout) => void;
+  setIsLibraryOverlayOpen: (isOpen: boolean) => void;
 
   setDefaultVinylMode:  (v: boolean) => void;
   setDefaultQuantize:   (v: boolean) => void;
@@ -82,6 +86,7 @@ interface UIState {
 
   togglePerformanceMode: () => void;
   setShiftHeld:          (held: boolean) => void;
+  setActiveTab:          (tab: MobileNavTab) => void;
 }
 
 export const useUIStore = create<UIState>()(
@@ -102,6 +107,7 @@ export const useUIStore = create<UIState>()(
       isSmartMatchEnabled: false,
       isGridView:          false,
       libraryLayout:       'list',
+      isLibraryOverlayOpen: false,
 
       // Deck Defaults
       defaultVinylMode:    true,
@@ -127,6 +133,7 @@ export const useUIStore = create<UIState>()(
       // Performance
       isPerformanceMode: false,
       isShiftHeld:       false,
+      activeTab:         'DECK_A' as MobileNavTab,
 
       // ── Action implementations ─────────────────────────────────────────────
       toggleWaveform:       () => set((s) => ({ isWaveformVisible: !s.isWaveformVisible })),
@@ -141,6 +148,7 @@ export const useUIStore = create<UIState>()(
       toggleSmartMatch:    () => set((s) => ({ isSmartMatchEnabled: !s.isSmartMatchEnabled })),
       toggleGridView:      () => set((s) => ({ isGridView: !s.isGridView })),
       setLibraryLayout:    (layout) => set({ libraryLayout: layout }),
+      setIsLibraryOverlayOpen: (isOpen) => set({ isLibraryOverlayOpen: isOpen }),
 
       setDefaultVinylMode: (v) => set({ defaultVinylMode: v }),
       setDefaultQuantize:  (v) => set({ defaultQuantize: v }),
@@ -163,6 +171,7 @@ export const useUIStore = create<UIState>()(
 
       togglePerformanceMode: () => set((s) => ({ isPerformanceMode: !s.isPerformanceMode })),
       setShiftHeld: (held) => set((s) => (s.isShiftHeld === held ? s : { isShiftHeld: held })),
+      setActiveTab: (tab) => set({ activeTab: tab }),
     }),
     {
       name: 'pro-dj-ui-settings', // persisted to localStorage

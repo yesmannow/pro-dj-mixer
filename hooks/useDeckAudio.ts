@@ -125,10 +125,7 @@ export function useDeckAudio(deckId: 'A' | 'B') {
       syncRuntime();
 
       if (deckGainRef.current) {
-        const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
-        const crossfaderGain = deckId === 'A' ? gainA : gainB;
-        const targetGain = mixerVolume * crossfaderGain;
-        deckGainRef.current.gain.setTargetAtTime(targetGain, engine.context.currentTime, 0.03);
+        // Volume is managed by a separate isolated useEffect to prevent graph rebuilds
       }
 
       if (eqChainRef.current) {
@@ -171,7 +168,17 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     return () => {
       cancelled = true;
     };
-  }, [deckId, deckState.stems, mixerVolume, crossfader, crossfaderCurve, eqState, syncRuntime]);
+  }, [deckId, deckState.stems, crossfader, crossfaderCurve, eqState, syncRuntime]);
+
+  // Apply volume changes to the deck gain node immediately
+  useEffect(() => {
+    if (!deckGainRef.current) return;
+    const engine = AudioEngine.getInstance();
+    const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
+    const xGain = deckId === 'A' ? gainA : gainB;
+    const targetGain = mixerVolume * xGain;
+    deckGainRef.current.gain.setTargetAtTime(Math.max(0, targetGain), engine.context.currentTime, 0.02);
+  }, [mixerVolume, crossfader, crossfaderCurve, deckId]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();
@@ -330,16 +337,6 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     AudioEngine.getInstance().setDeckPlaybackRate(deckId, basePlaybackRate);
     syncRuntime();
   }, [basePlaybackRate, deckId, syncRuntime]);
-
-  // Apply volume changes to the deck gain node immediately
-  useEffect(() => {
-    if (!deckGainRef.current) return;
-    const engine = AudioEngine.getInstance();
-    const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
-    const xGain = deckId === 'A' ? gainA : gainB;
-    const targetGain = deckState.volume * xGain;
-    deckGainRef.current.gain.setTargetAtTime(Math.max(0, targetGain), engine.context.currentTime, 0.02);
-  }, [deckState.volume, crossfader, crossfaderCurve, deckId]);
 
   useEffect(() => {
     const engine = AudioEngine.getInstance();

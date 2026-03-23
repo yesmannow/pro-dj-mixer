@@ -1,6 +1,6 @@
 export type StemType = 'drums' | 'inst' | 'vocals';
 export type NeuralStemGains = Record<StemType, { a: number; b: number }>;
-const NEURAL_STEM_GAIN = 1.0; // 1.0 since stems are now frequency-isolated and don't destructively sum
+const NEURAL_STEM_GAIN = 1.0; // 1.0 since stems are now frequency-isolated 
 const NEURAL_DRUMS_THRESHOLD = 0.25;
 const NEURAL_INST_THRESHOLD = 0.5;
 const NEURAL_VOCALS_THRESHOLD = 0.75;
@@ -22,6 +22,12 @@ export class AudioEngine {
   public context: AudioContext;
   public masterGain: GainNode;
   public masterAnalyser: AnalyserNode;
+  public cueGain: GainNode;
+  private cueMonitorGain: GainNode;
+  private masterMonitorGain: GainNode;
+  private masterPanner: StereoPannerNode;
+  private cuePanner: StereoPannerNode;
+  private isSplitMono = true;
   private remixBus: GainNode;
   private limiter: DynamicsCompressorNode;
   private bunkerConvolver: ConvolverNode;
@@ -34,6 +40,14 @@ export class AudioEngine {
   private workletReadyPromise: Promise<boolean> | null = null;
   private workletWarningLogged = false;
   private recordingDestination: MediaStreamAudioDestinationNode | null = null;
+  // Per-deck SoundTouch fallback engine for Key Lock (used when native preservesPitch is absent)
+  private deckKeyLockEngines: Partial<Record<'A' | 'B', {
+    node: ScriptProcessorNode;
+    filter: { sourcePosition: number; extract(target: Float32Array, numFrames: number): number; clear(): void };
+    soundTouch: { tempo: number };
+    buffer: AudioBuffer;
+  }>> = {};
+  private nativeKeyLockSupported: boolean | null = null;
   private readonly latencyHint: AudioContextLatencyCategory = 'interactive';
   private deckAnalysers: Partial<Record<'A' | 'B', AnalyserNode>> = {};
   private deckDataArrays: Partial<Record<'A' | 'B', Uint8Array<ArrayBuffer>>> = {};
@@ -110,6 +124,17 @@ export class AudioEngine {
     output: GainNode;
     fxOutput: GainNode;
   }>> = {};
+  private stemCrossoverFilters: Partial<Record<'A' | 'B', {
+    lowLP1: BiquadFilterNode;
+    lowLP2: BiquadFilterNode;
+    midHP1: BiquadFilterNode;
+    midHP2: BiquadFilterNode;
+    midLP1: BiquadFilterNode;
+    midLP2: BiquadFilterNode;
+    highHP1: BiquadFilterNode;
+    highHP2: BiquadFilterNode;
+  }>> = {};
+  private deckCueGains: Partial<Record<'A' | 'B', GainNode>> = {};
   private performanceLoops: Record<'A' | 'B', {
     mode: 'slip-roll' | 'beat-break' | null;
     originTime: number;
@@ -122,13 +147,19 @@ export class AudioEngine {
     B: { mode: null, originTime: 0, loopStart: 0, loopDuration: 0, startedAtContextTime: 0, wasPlaying: false },
   };
   private static readonly STEM_COUNT = 3;
-  private static readonly STEM_UNITY_CONTRIBUTION = 1.0; // 1.0 because stems are frequency-isolated via crossovers
   private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
   private static readonly MIN_PERFORMANCE_LOOP_DURATION = 0.05;
   private static readonly TARGET_RECORDING_SAMPLE_RATE = 48000;
   private static readonly TARGET_RECORDING_BIT_DEPTH = 24;
+  // ── Bipolar filter constants ──
+  private static readonly FILTER_CENTER_VALUE = 50;
+  private static readonly FILTER_BYPASS_THRESHOLD = 1;
+  private static readonly FILTER_MAX_FREQ = 20000;
+  private static readonly FILTER_MIN_FREQ = 20;
+  private static readonly FILTER_BASE_RESONANCE = 0.7;
+  private static readonly FILTER_RESONANCE_RANGE = 4;
 
   private constructor() {
     if (typeof window === 'undefined') {
@@ -149,7 +180,15 @@ export class AudioEngine {
       this.context = new AudioContextCtor();
     }
     this.masterGain = this.context.createGain();
-    this.masterGain.gain.value = 0.7;
+    this.masterGain.gain.value = 0.5;
+    this.cueGain = this.context.createGain();
+    this.cueGain.gain.value = 1;
+    this.cueMonitorGain = this.context.createGain();
+    this.cueMonitorGain.gain.value = 1;
+    this.masterMonitorGain = this.context.createGain();
+    this.masterMonitorGain.gain.value = 1;
+    this.masterPanner = this.context.createStereoPanner();
+    this.cuePanner = this.context.createStereoPanner();
     this.remixBus = this.context.createGain();
     this.remixBus.gain.value = 0.72;
 
@@ -185,6 +224,12 @@ export class AudioEngine {
     // coloration while still landing inside the final safety stage.
     this.remixBus.connect(this.limiter);
     this.limiter.connect(this.context.destination);
+    this.masterGain.connect(this.masterMonitorGain);
+    this.masterMonitorGain.connect(this.masterPanner);
+    this.masterPanner.connect(this.context.destination);
+    this.cueGain.connect(this.cueMonitorGain);
+    this.cueMonitorGain.connect(this.cuePanner);
+    this.cuePanner.connect(this.context.destination);
 
     // Recording tap: connect the final post-limiter signal to the MediaStreamDestination
     this.recordingDestination = this.context.createMediaStreamDestination();
@@ -192,6 +237,7 @@ export class AudioEngine {
 
     this.workletReadyPromise = this.ensureAudioWorklets();
     void this.loadBunkerImpulse();
+    this.setSplitMonoEnabled(true);
   }
 
   public static getInstance(): AudioEngine {
@@ -337,6 +383,7 @@ export class AudioEngine {
     const input = this.context.createGain();
     const output = this.context.createGain();
     const fxOutput = this.context.createGain();
+    const cueSend = this.deckCueGains[deckId] ?? this.context.createGain();
 
     const drumsGain = existingGains?.drums ?? this.context.createGain();
     const instGain = existingGains?.inst ?? this.context.createGain();
@@ -348,9 +395,12 @@ export class AudioEngine {
     const instFxGain = this.context.createGain();
     const vocalsFxGain = this.context.createGain();
 
+    // Unity gain per stem — the Linkwitz-Riley crossover handles band isolation;
+    // each stem gain node is now purely for mute/level control.
     [drumsGain, instGain, vocalsGain].forEach((gainNode) => {
-      gainNode.gain.value = AudioEngine.STEM_UNITY_CONTRIBUTION;
+      gainNode.gain.value = 1.0;
     });
+    cueSend.gain.value = 0;
     // Before Phase 7 every stem branch fed the deck FX bus, so deck FX always processed the full deck.
     // Start in that same all-to-FX posture so existing mixes still sound identical until the user
     // deliberately drops specific stems back to the dry path via the new FX Sends controls.
@@ -361,34 +411,62 @@ export class AudioEngine {
       gainNode.gain.value = 1;
     });
 
-    // Create real crossover filters for the simulated stems
-    // Drums: < 250 Hz (Low frequencies, kicks, bass)
-    const drumsFilter = this.context.createBiquadFilter();
-    drumsFilter.type = 'lowpass';
-    drumsFilter.frequency.value = 250;
+    // ── Linkwitz-Riley 4th-order crossover (LR4) ──────────────────────────
+    // Two cascaded 2nd-order Butterworth filters per band edge.
+    // Low (drums):  LP @ 250 Hz
+    // Mid (vocals): HP @ 250 Hz + LP @ 4000 Hz
+    // High (inst):  HP @ 4000 Hz
+    const LR_Q = 0.7071; // Butterworth Q for 2nd-order
+    const LOW_FREQ = 250;
+    const HIGH_FREQ = 4000;
 
-    // Vocals: 250 Hz - 3500 Hz (Mid frequencies, voice, main body)
-    const vocalsHp = this.context.createBiquadFilter();
-    vocalsHp.type = 'highpass';
-    vocalsHp.frequency.value = 250;
-    const vocalsLp = this.context.createBiquadFilter();
-    vocalsLp.type = 'lowpass';
-    vocalsLp.frequency.value = 3500;
+    const createLP = (freq: number): BiquadFilterNode => {
+      const f = this.context.createBiquadFilter();
+      f.type = 'lowpass';
+      f.frequency.value = freq;
+      f.Q.value = LR_Q;
+      return f;
+    };
+    const createHP = (freq: number): BiquadFilterNode => {
+      const f = this.context.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = freq;
+      f.Q.value = LR_Q;
+      return f;
+    };
 
-    // Instruments: > 3500 Hz (High frequencies, hi-hats, air, leads)
-    const instFilter = this.context.createBiquadFilter();
-    instFilter.type = 'highpass';
-    instFilter.frequency.value = 3500;
+    // Low band: two cascaded lowpass at 250 Hz
+    const lowLP1 = createLP(LOW_FREQ);
+    const lowLP2 = createLP(LOW_FREQ);
+    // Mid band: two cascaded highpass at 250 Hz → two cascaded lowpass at 4000 Hz
+    const midHP1 = createHP(LOW_FREQ);
+    const midHP2 = createHP(LOW_FREQ);
+    const midLP1 = createLP(HIGH_FREQ);
+    const midLP2 = createLP(HIGH_FREQ);
+    // High band: two cascaded highpass at 4000 Hz
+    const highHP1 = createHP(HIGH_FREQ);
+    const highHP2 = createHP(HIGH_FREQ);
 
-    // Wire: input -> Crossovers -> [drums | inst | vocals] GainNodes -> [direct + FX send] -> [output + fxOutput]
-    input.connect(drumsFilter);
-    input.connect(vocalsHp);
-    vocalsHp.connect(vocalsLp);
-    input.connect(instFilter);
+    this.stemCrossoverFilters[deckId] = {
+      lowLP1, lowLP2, midHP1, midHP2, midLP1, midLP2, highHP1, highHP2,
+    };
 
-    drumsFilter.connect(drumsGain);
-    instFilter.connect(instGain);
-    vocalsLp.connect(vocalsGain);
+    // Wire: input → [low crossover → drums gain] + [mid crossover → vocals gain] + [high crossover → inst gain]
+    input.connect(lowLP1);
+    lowLP1.connect(lowLP2);
+    lowLP2.connect(drumsGain);
+
+    input.connect(midHP1);
+    midHP1.connect(midHP2);
+    midHP2.connect(midLP1);
+    midLP1.connect(midLP2);
+    midLP2.connect(vocalsGain);
+
+    input.connect(highHP1);
+    highHP1.connect(highHP2);
+    highHP2.connect(instGain);
+
+    input.connect(cueSend);
 
     drumsGain.connect(drumsDirectGain);
     drumsGain.connect(drumsFxGain);
@@ -403,11 +481,13 @@ export class AudioEngine {
     drumsFxGain.connect(fxOutput);
     instFxGain.connect(fxOutput);
     vocalsFxGain.connect(fxOutput);
+    cueSend.connect(this.cueGain);
 
     this.stemGains[deckId] = { drums: drumsGain, inst: instGain, vocals: vocalsGain };
     this.stemDirectGains[deckId] = { drums: drumsDirectGain, inst: instDirectGain, vocals: vocalsDirectGain };
     this.stemFxGains[deckId] = { drums: drumsFxGain, inst: instFxGain, vocals: vocalsFxGain };
     this.stemChains[deckId] = { input, output, fxOutput };
+    this.deckCueGains[deckId] = cueSend;
 
     return this.stemChains[deckId]!;
   }
@@ -477,8 +557,8 @@ export class AudioEngine {
     const output = this.context.createGain();
 
     filter.type = 'lowpass';
-    filter.frequency.value = 18000;
-    filter.Q.value = 0.9;
+    filter.frequency.value = 20000;
+    filter.Q.value = 0.7;
 
     delayNode.delayTime.value = 0.18;
     delayFeedbackGain.gain.value = 0.22;
@@ -528,28 +608,45 @@ export class AudioEngine {
     return bus;
   }
 
-  public setDeckFX(deckId: 'A' | 'B', type: 'filter' | 'echo' | 'crush', value: number) {
+  public setDeckFX(deckId: 'A' | 'B', type: 'filter' | 'echo' | 'crush', value: number, bpm?: number) {
     const fx = this.deckFxBuses[deckId];
     if (!fx) return;
     const now = this.context.currentTime;
     const norm = Math.max(0, Math.min(1, value / 100));
 
     if (type === 'filter') {
-      const min = 180;
-      const max = 18000;
-      const freq = min * Math.pow(max / min, norm);
-      const resonance = 0.7 + norm * 1.2;
-      fx.filter.frequency.setTargetAtTime(freq, now, 0.03);
+      const center = AudioEngine.FILTER_CENTER_VALUE;
+      if (Math.abs(value - center) < AudioEngine.FILTER_BYPASS_THRESHOLD) {
+        // Neutral: bypass by opening the filter wide
+        fx.filter.type = 'lowpass';
+        fx.filter.frequency.setTargetAtTime(AudioEngine.FILTER_MAX_FREQ, now, 0.03);
+        fx.filter.Q.setTargetAtTime(AudioEngine.FILTER_BASE_RESONANCE, now, 0.03);
+        return;
+      }
+      if (value < center) {
+        // Lowpass sweep down
+        const cutoff = AudioEngine.FILTER_MAX_FREQ * Math.pow(AudioEngine.FILTER_MIN_FREQ / AudioEngine.FILTER_MAX_FREQ, (center - value) / center);
+        fx.filter.type = 'lowpass';
+        fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
+      } else {
+        // Highpass sweep up
+        const cutoff = AudioEngine.FILTER_MIN_FREQ * Math.pow(AudioEngine.FILTER_MAX_FREQ / AudioEngine.FILTER_MIN_FREQ, (value - center) / center);
+        fx.filter.type = 'highpass';
+        fx.filter.frequency.setTargetAtTime(cutoff, now, 0.03);
+      }
+      const resonance = AudioEngine.FILTER_BASE_RESONANCE + (1 - Math.abs(value - center) / center) * AudioEngine.FILTER_RESONANCE_RANGE;
       fx.filter.Q.setTargetAtTime(resonance, now, 0.03);
       return;
     }
 
     if (type === 'echo') {
-      const delayTime = 0.08 + norm * 0.42; // 80ms -> 500ms
+      const safeBpm = (bpm && Number.isFinite(bpm) && bpm > 0) ? bpm : 120;
+      const beatDuration = 60 / safeBpm;
+      const syncDelay = beatDuration * 0.75; // 3/4 beat
       const feedback = Math.min(0.88, 0.12 + norm * 0.65);
       const mix = Math.min(0.85, norm * 0.85);
       const dry = 1 - mix * 0.65;
-      fx.delayNode.delayTime.setTargetAtTime(delayTime, now, 0.03);
+      fx.delayNode.delayTime.setTargetAtTime(syncDelay, now, 0.03);
       fx.delayFeedbackGain.gain.setTargetAtTime(feedback, now, 0.03);
       fx.delayMixGain.gain.setTargetAtTime(mix, now, 0.03);
       fx.dryGain.gain.setTargetAtTime(dry, now, 0.03);
@@ -691,8 +788,7 @@ export class AudioEngine {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
     const clamped = Math.max(0, Math.min(1, level));
-    const target = AudioEngine.STEM_UNITY_CONTRIBUTION * clamped;
-    deckStemGains[stemType].gain.setTargetAtTime(target, this.context.currentTime, 0.01);
+    deckStemGains[stemType].gain.setTargetAtTime(clamped, this.context.currentTime, 0.01);
   }
 
   public setStemContribution(
@@ -703,7 +799,7 @@ export class AudioEngine {
   ) {
     const deckStemGains = this.stemGains[deckId];
     if (!deckStemGains) return;
-    const clamped = Math.max(0, Math.min(AudioEngine.STEM_UNITY_CONTRIBUTION, contribution));
+    const clamped = Math.max(0, Math.min(1, contribution));
     const now = this.context.currentTime;
     const rampSeconds = Math.max(0, options?.rampSeconds ?? 0.01);
     const gain = deckStemGains[stemType].gain;
@@ -727,21 +823,56 @@ export class AudioEngine {
     deckFxGains[stemType].gain.setTargetAtTime(clamped, now, 0.02);
   }
 
+  public setSplitMonoEnabled(enabled: boolean) {
+    this.isSplitMono = enabled;
+    const now = this.context.currentTime;
+    if (enabled) {
+      this.masterPanner.pan.setValueAtTime(-1, now);
+      this.cuePanner.pan.setValueAtTime(1, now);
+      // Hard-panning mono buses costs ~3 dB of perceived loudness per side, so apply √2 gain
+      // compensation to keep headphone monitoring loudness aligned with the stereo mix.
+      this.masterMonitorGain.gain.setValueAtTime(1.41, now);
+      this.cueMonitorGain.gain.setValueAtTime(1.41, now);
+      return;
+    }
+    this.masterPanner.pan.setValueAtTime(0, now);
+    this.cuePanner.pan.setValueAtTime(0, now);
+    this.masterMonitorGain.gain.setValueAtTime(1, now);
+    this.cueMonitorGain.gain.setValueAtTime(1, now);
+  }
+
+  public getSplitMonoEnabled() {
+    return this.isSplitMono;
+  }
+
+  public setDeckCueEnabled(deckId: 'A' | 'B', enabled: boolean) {
+    const cueSend = this.deckCueGains[deckId];
+    if (!cueSend) return;
+    cueSend.gain.setTargetAtTime(enabled ? 1 : 0, this.context.currentTime, 0.01);
+  }
+
   public toggleKeyLock(deckId: 'A' | 'B') {
     const deck = this.decks[deckId];
     const enabled = !deck.keyLockEnabled;
     deck.keyLockEnabled = enabled;
-    const supported = this.getPitchLockSupport();
     if (deck.source) {
       this.applyPitchLock(deck.source, deckId);
     }
-    return { enabled, supported };
+    // Key Lock is always "supported": either via native preservesPitch or SoundTouch fallback.
+    return { enabled, supported: true };
   }
 
   public setDeckPlaybackRate(deckId: 'A' | 'B', playbackRate: number) {
     const deck = this.decks[deckId];
     const targetRate = Math.max(0.5, Math.min(2.0, playbackRate));
     deck.playbackRate = targetRate;
+
+    // When the SoundTouch key-lock engine is active, drive its tempo instead of the source.
+    const kle = this.deckKeyLockEngines[deckId];
+    if (kle) {
+      kle.soundTouch.tempo = targetRate;
+      return;
+    }
 
     if (!deck.source) {
       return;
@@ -831,6 +962,10 @@ export class AudioEngine {
       stemChain.output.disconnect();
       stemChain.fxOutput.disconnect();
     }
+    const cueSend = this.deckCueGains[deckId];
+    if (cueSend) {
+      cueSend.disconnect();
+    }
 
     // Disconnect the per-deck analyser.
     const analyser = this.deckAnalysers[deckId];
@@ -843,6 +978,9 @@ export class AudioEngine {
     if (fxBus) {
       fxBus.output.disconnect();
     }
+
+    // Clean up the SoundTouch key-lock engine if active.
+    this.cleanupKeyLockEngine(deckId);
   }
 
   public getRecordingStream(): MediaStream | null {
@@ -862,12 +1000,112 @@ export class AudioEngine {
   }
 
   private getPitchLockSupport() {
+    if (this.nativeKeyLockSupported !== null) return this.nativeKeyLockSupported;
     const probe = this.context.createBufferSource() as AudioBufferSourceNode & {
       preservesPitch?: boolean;
       mozPreservesPitch?: boolean;
       webkitPreservesPitch?: boolean;
     };
-    return 'preservesPitch' in probe || 'mozPreservesPitch' in probe || 'webkitPreservesPitch' in probe;
+    this.nativeKeyLockSupported = (
+      'preservesPitch' in probe ||
+      'mozPreservesPitch' in probe ||
+      'webkitPreservesPitch' in probe
+    );
+    return this.nativeKeyLockSupported;
+  }
+
+  /** Returns true when the browser natively supports pitch-invariant playback rate changes. */
+  public hasNativeKeyLock(): boolean {
+    return this.getPitchLockSupport();
+  }
+
+  /**
+   * Creates a SoundTouch-powered ScriptProcessorNode that plays `buffer` with pitch-invariant
+   * time-stretching at the given `tempo` ratio, starting at `startPositionSec`.
+   *
+   * Call `cleanupKeyLockEngine(deckId)` before invoking again or when stopping.
+   * Returns null if soundtouchjs fails to load (fallback to native playback).
+   */
+  public async initKeyLockEngine(
+    deckId: 'A' | 'B',
+    buffer: AudioBuffer,
+    startPositionSec: number,
+    tempo: number,
+  ): Promise<ScriptProcessorNode | null> {
+    this.cleanupKeyLockEngine(deckId);
+
+    let stMod: typeof import('soundtouchjs');
+    try {
+      // Dynamic import keeps soundtouchjs out of the SSR bundle.
+      stMod = await import('soundtouchjs');
+    } catch {
+      console.warn('[AudioEngine] soundtouchjs unavailable; Key Lock falling back to native preservesPitch.');
+      return null;
+    }
+
+    const { SoundTouch, SimpleFilter, WebAudioBufferSource } = stMod;
+
+    const soundTouch = new SoundTouch();
+    soundTouch.tempo = Math.max(0.5, Math.min(2.0, tempo));
+
+    const bufferSource = new WebAudioBufferSource(buffer);
+    const filter = new SimpleFilter(bufferSource, soundTouch);
+    filter.sourcePosition = Math.round(startPositionSec * buffer.sampleRate);
+
+    const BLOCK = 4096;
+    // Use (BLOCK, 2, 2) so onaudioprocess fires reliably in all browsers (mirrors soundtouchjs default).
+    const node = this.context.createScriptProcessor(BLOCK, 2, 2);
+    const samples = new Float32Array(BLOCK * 2);
+    const deck = this.decks[deckId];
+
+    node.onaudioprocess = (e: AudioProcessingEvent) => {
+      const left = e.outputBuffer.getChannelData(0);
+      const right = e.outputBuffer.getChannelData(1);
+      const framesExtracted = filter.extract(samples, BLOCK);
+
+      for (let i = 0; i < framesExtracted; i++) {
+        left[i] = samples[i * 2];
+        right[i] = samples[i * 2 + 1];
+      }
+      // Zero-fill any remaining frames (end-of-buffer).
+      for (let i = framesExtracted; i < BLOCK; i++) {
+        left[i] = 0;
+        right[i] = 0;
+      }
+
+      if (framesExtracted === 0) {
+        // Buffer exhausted — signal end of track.
+        deck.isPlaying = false;
+        deck.onPauseTime?.(0);
+      }
+    };
+
+    this.deckKeyLockEngines[deckId] = { node, filter, soundTouch, buffer };
+    return node;
+  }
+
+  /**
+   * Returns the current playback position (in seconds) of the SoundTouch key-lock engine.
+   * Falls back to 0 if no engine is active.
+   */
+  public getKeyLockPosition(deckId: 'A' | 'B'): number {
+    const kle = this.deckKeyLockEngines[deckId];
+    if (!kle) return 0;
+    return kle.filter.sourcePosition / kle.buffer.sampleRate;
+  }
+
+  /** Disconnects and destroys the SoundTouch engine for the given deck. */
+  public cleanupKeyLockEngine(deckId: 'A' | 'B') {
+    const kle = this.deckKeyLockEngines[deckId];
+    if (!kle) return;
+    try {
+      // Setting onaudioprocess to null stops the processing callback before disconnect.
+      (kle.node as ScriptProcessorNode & { onaudioprocess: null }).onaudioprocess = null;
+      kle.node.disconnect();
+    } catch {
+      // Already disconnected — ignore.
+    }
+    delete this.deckKeyLockEngines[deckId];
   }
 
   private applyPitchLock(source: AudioBufferSourceNode, deckId: 'A' | 'B') {
