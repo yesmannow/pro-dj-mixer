@@ -10,6 +10,8 @@
     "clean": "next clean"
   },
   "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
     "@splinetool/react-spline": "^4.1.0",
     "autoprefixer": "^10.4.21",
     "clsx": "^2.1.1",
@@ -23,6 +25,7 @@
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-hot-toast": "^2.6.0",
+    "three": "^0.183.2",
     "zustand": "^5.0.11"
   },
   "devDependencies": {
@@ -31,6 +34,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.183.1",
     "eslint": "9.39.1",
     "eslint-config-next": "16.0.8",
     "tailwindcss": "4.1.11",

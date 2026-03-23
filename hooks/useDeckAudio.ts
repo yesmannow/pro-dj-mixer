@@ -261,6 +261,16 @@ export function useDeckAudio(deckId: 'A' | 'B') {
     syncRuntime();
   }, [basePlaybackRate, deckId, syncRuntime]);
 
+  // Apply volume changes to the deck gain node immediately
+  useEffect(() => {
+    if (!deckGainRef.current) return;
+    const engine = AudioEngine.getInstance();
+    const { gainA, gainB } = engine.getCrossfaderGains(crossfader, crossfaderCurve);
+    const xGain = deckId === 'A' ? gainA : gainB;
+    const targetGain = deckState.volume * xGain;
+    deckGainRef.current.gain.setTargetAtTime(Math.max(0, targetGain), engine.context.currentTime, 0.02);
+  }, [deckState.volume, crossfader, crossfaderCurve, deckId]);
+
   useEffect(() => {
     const engine = AudioEngine.getInstance();
     void engine.createDeckFxBus(deckId).then(() => {

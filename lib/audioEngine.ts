@@ -1,6 +1,6 @@
 export type StemType = 'drums' | 'inst' | 'vocals';
 export type NeuralStemGains = Record<StemType, { a: number; b: number }>;
-const NEURAL_STEM_GAIN = 0.33;
+const NEURAL_STEM_GAIN = 1.0; // 1.0 since stems are now frequency-isolated and don't destructively sum
 const NEURAL_DRUMS_THRESHOLD = 0.25;
 const NEURAL_INST_THRESHOLD = 0.5;
 const NEURAL_VOCALS_THRESHOLD = 0.75;
@@ -122,7 +122,7 @@ export class AudioEngine {
     B: { mode: null, originTime: 0, loopStart: 0, loopDuration: 0, startedAtContextTime: 0, wasPlaying: false },
   };
   private static readonly STEM_COUNT = 3;
-  private static readonly STEM_UNITY_CONTRIBUTION = 0.33;
+  private static readonly STEM_UNITY_CONTRIBUTION = 1.0; // 1.0 because stems are frequency-isolated via crossovers
   private static readonly DEFAULT_PLAYBACK_RAMP = 0.01;
   private static readonly KEY_LOCK_PLAYBACK_RAMP = 0.02;
   private static readonly CRUSH_ACTIVATION_THRESHOLD = 0.001;
@@ -361,13 +361,34 @@ export class AudioEngine {
       gainNode.gain.value = 1;
     });
 
-    // Balance the summed stem path so all three active stems land near unity
-    // (STEM_COUNT × STEM_UNITY_CONTRIBUTION ≈ 1.0, so each active stem contributes one-third),
-    // which keeps the deck input from clipping before EQ, FX, and the master bus.
-    // Wire: input -> [drums | inst | vocals] GainNodes -> [direct + FX send] -> [output + fxOutput]
-    input.connect(drumsGain);
-    input.connect(instGain);
-    input.connect(vocalsGain);
+    // Create real crossover filters for the simulated stems
+    // Drums: < 250 Hz (Low frequencies, kicks, bass)
+    const drumsFilter = this.context.createBiquadFilter();
+    drumsFilter.type = 'lowpass';
+    drumsFilter.frequency.value = 250;
+
+    // Vocals: 250 Hz - 3500 Hz (Mid frequencies, voice, main body)
+    const vocalsHp = this.context.createBiquadFilter();
+    vocalsHp.type = 'highpass';
+    vocalsHp.frequency.value = 250;
+    const vocalsLp = this.context.createBiquadFilter();
+    vocalsLp.type = 'lowpass';
+    vocalsLp.frequency.value = 3500;
+
+    // Instruments: > 3500 Hz (High frequencies, hi-hats, air, leads)
+    const instFilter = this.context.createBiquadFilter();
+    instFilter.type = 'highpass';
+    instFilter.frequency.value = 3500;
+
+    // Wire: input -> Crossovers -> [drums | inst | vocals] GainNodes -> [direct + FX send] -> [output + fxOutput]
+    input.connect(drumsFilter);
+    input.connect(vocalsHp);
+    vocalsHp.connect(vocalsLp);
+    input.connect(instFilter);
+
+    drumsFilter.connect(drumsGain);
+    instFilter.connect(instGain);
+    vocalsLp.connect(vocalsGain);
 
     drumsGain.connect(drumsDirectGain);
     drumsGain.connect(drumsFxGain);

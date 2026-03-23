@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { clsx } from 'clsx';
-import { MagneticButton } from '@/components/ui/MagneticButton';
+import { motion } from 'framer-motion';
 import type { PerformancePadMode } from '@/hooks/usePerformanceFX';
 
 interface CuePointView {
@@ -118,17 +118,17 @@ export function PerformancePads({
           );
 
           return (
-            <MagneticButton
+            <motion.button
               key={slot}
               type="button"
-              whileTap={{ scale: 0.95 }}
+              whileTap={{ scale: 0.93 }}
               className={padClasses}
               style={{
                 borderColor: accentColor ?? (deckId === 'A' ? '#FFD700' : '#FF003C'),
                 ['--deck-primary' as string]: accentColor ?? (deckId === 'A' ? '#FFD700' : '#FF003C'),
               }}
               onPointerDown={(e) => {
-                setPointerPressed((prev) => {
+                setPointerPressed((prev: Set<number>) => {
                   const next = new Set(prev);
                   next.add(slot);
                   return next;
@@ -140,7 +140,7 @@ export function PerformancePads({
                 onPadHold(slot);
               }}
               onPointerUp={() => {
-                setPointerPressed((prev) => {
+                setPointerPressed((prev: Set<number>) => {
                   const next = new Set(prev);
                   next.delete(slot);
                   return next;
@@ -149,7 +149,7 @@ export function PerformancePads({
                 onPadRelease(slot);
               }}
               onPointerLeave={() => {
-                setPointerPressed((prev) => {
+                setPointerPressed((prev: Set<number>) => {
                   const next = new Set(prev);
                   next.delete(slot);
                   return next;
@@ -157,7 +157,7 @@ export function PerformancePads({
                 if (!shiftHeld) onPadRelease(slot);
               }}
               onPointerCancel={() => {
-                setPointerPressed((prev) => {
+                setPointerPressed((prev: Set<number>) => {
                   const next = new Set(prev);
                   next.delete(slot);
                   return next;
@@ -176,7 +176,7 @@ export function PerformancePads({
                 </span>
               )}
               <div className={compact ? 'absolute bottom-0.5 right-0.5 text-[7px] text-gray-500' : 'absolute bottom-1 right-1 text-[8px] text-gray-500'}>{slot}</div>
-            </MagneticButton>
+            </motion.button>
           );
         })}
       </div>
