@@ -28,8 +28,10 @@ export function Layout({
   remixContent,
 }: Readonly<LayoutProps>) {
   const [clock, setClock] = useState(() => new Date());
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
     const timer = window.setInterval(() => setClock(new Date()), 1000);
     return () => window.clearInterval(timer);
   }, []);
@@ -48,9 +50,11 @@ export function Layout({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="oled-display rounded-lg border border-[#00FF00]/20 bg-black/50 px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[#00FF00]">
-            CLK {masterClock}
-          </div>
+          {mounted && (
+            <div className="oled-display rounded-lg border border-[#00FF00]/20 bg-black/50 px-3 py-1.5 text-[11px] uppercase tracking-[0.18em] text-[#00FF00]">
+              CLK {masterClock}
+            </div>
+          )}
           <button
             type="button"
             onClick={onToggleRemix}
