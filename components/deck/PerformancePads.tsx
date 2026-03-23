@@ -133,6 +133,7 @@ export function PerformancePads({
                   next.add(slot);
                   return next;
                 });
+                navigator.vibrate?.(10);
                 if (shiftHeld) {
                   if (isActive) onClearCue(slot);
                   return;

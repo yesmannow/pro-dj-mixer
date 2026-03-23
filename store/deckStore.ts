@@ -27,6 +27,7 @@ interface DeckStore {
   deckA: DeckState;
   deckB: DeckState;
   loadTrack: (deckId: 'A' | 'B', track: Track) => Promise<void>;
+  ejectTrack: (deckId: 'A' | 'B') => void;
   togglePlay: (deckId: 'A' | 'B') => void;
   setVolume: (deckId: 'A' | 'B', volume: number) => void;
   setPitch: (deckId: 'A' | 'B', pitchPercent: number) => void;
@@ -92,6 +93,14 @@ export const useDeckStore = create<DeckStore>((set, get) => ({
         [deckKey]: { ...state[deckKey], isLoading: false, track: null, buffer: null }
       }));
     }
+  },
+
+  ejectTrack: (deckId: 'A' | 'B') => {
+    const deckKey = deckId === 'A' ? 'deckA' : 'deckB';
+    if (typeof window !== 'undefined') {
+      AudioEngine.getInstance().disconnectDeck(deckId);
+    }
+    set({ [deckKey]: { ...initialDeckState } });
   },
 
   togglePlay: (deckId: 'A' | 'B') => {

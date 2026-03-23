@@ -1,7 +1,8 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, useCallback } from 'react';
 import { useDeckStore } from '@/store/deckStore';
+import { useMixerStore } from '@/store/mixerStore';
 import { useUIStore } from '@/store/uiStore';
 import { AudioEngine } from '@/lib/audioEngine';
 
@@ -62,28 +63,72 @@ function getFrequencyDataFromAnalyser(analyser: AnalyserNode | null): FrequencyR
   };
 }
 
+/** Zero-crossing rate threshold below which a bar is classified as bass */
+const ZCR_BASS_THRESHOLD = 0.1;
+/** Zero-crossing rate threshold below which a bar is classified as mid (above = high) */
+const ZCR_MID_THRESHOLD = 0.3;
+/** Waveform bar color for bass-dominant regions */
+const COLOR_BASS = '#FF003C';
+/** Waveform bar color for mid-dominant regions */
+const COLOR_MID = '#FFD700';
+/** Waveform bar color for high-dominant regions */
+const COLOR_HIGH = '#FFFFFF';
+
 /**
- * Renders the complete waveform for `buffer` into a new off-screen HTMLCanvasElement.
+ * Determines the color of a waveform bar based on zero-crossing rate analysis.
+ * Low ZCR → bass → Crimson, Medium → Gold, High → White.
+ */
+function getBarColor(samples: Float32Array, right: Float32Array | null, start: number, count: number): string {
+  let zeroCrossings = 0;
+  for (let i = 1; i < count && (start + i) < samples.length; i++) {
+    const current = right ? (samples[start + i] + right[start + i]) * 0.5 : samples[start + i];
+    const prev = right ? (samples[start + i - 1] + right[start + i - 1]) * 0.5 : samples[start + i - 1];
+    if ((current >= 0) !== (prev >= 0)) zeroCrossings++;
+  }
+  const zcr = zeroCrossings / count;
+  if (zcr < ZCR_BASS_THRESHOLD) return COLOR_BASS;
+  if (zcr < ZCR_MID_THRESHOLD) return COLOR_MID;
+  return COLOR_HIGH;
+}
+
+/**
+ * Maximum number of audio samples to process per animation frame.
+ * Keeps each chunk well under the 16 ms frame budget so the UI stays responsive
+ * while the waveform progressively paints itself onto the off-screen canvas.
+ */
+const SAMPLES_PER_CHUNK = 100_000;
+
+/**
+ * Renders the complete waveform for `buffer` into a new off-screen HTMLCanvasElement
+ * using a **chunked requestAnimationFrame loop**.
+ *
+ * Instead of blocking the main thread for the entire buffer, it processes
+ * ~SAMPLES_PER_CHUNK samples per frame and yields, so the UI remains responsive
+ * while the waveform progressively paints itself.
  *
  * Bars are drawn in white (for later `multiply` compositing) at full opacity so that
  * the RGB overlay step can tint them to any colour without baking the live frequency
  * data into this cached layer.
  *
  * Called ONLY when the audio buffer or zoom level changes — never on every frame.
+ *
+ * @returns An object with the (initially blank) `canvas` and a `cancel` function.
+ *          The canvas is drawn into progressively and can be blitted each render
+ *          frame even before the build finishes.
  */
-function buildBackgroundCanvas(
+function buildBackgroundCanvasChunked(
   buffer: AudioBuffer,
   height: number,
   pps: number,
   isTop: boolean,
-): HTMLCanvasElement {
+): { canvas: HTMLCanvasElement; cancel: () => void } {
   const totalWidth = Math.max(1, Math.ceil(buffer.duration * pps));
   const canvas = document.createElement('canvas');
   canvas.width = totalWidth;
   canvas.height = Math.max(1, height);
 
   const ctx = canvas.getContext('2d');
-  if (!ctx) return canvas;
+  if (!ctx) return { canvas, cancel: () => {} };
 
   const left = buffer.getChannelData(0);
   const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null;
@@ -91,33 +136,62 @@ function buildBackgroundCanvas(
   const amp = height * 0.48;
   const barWidth = 2;
   const samplesPerBar = Math.max(1, Math.floor((barWidth / pps) * buffer.sampleRate));
+  const barsPerChunk = Math.max(1, Math.floor(SAMPLES_PER_CHUNK / samplesPerBar));
 
-  // White bars — RGB tint is applied later via canvas `multiply` compositing.
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+  let currentX = 0;
+  let frameId = 0;
+  let cancelled = false;
 
-  for (let x = 0; x < totalWidth; x += barWidth) {
-    const timeAtPixel = x / pps;
-    if (timeAtPixel > buffer.duration) break;
+  const processChunk = () => {
+    if (cancelled) return;
 
-    const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
-    let max = 0;
-    for (let i = 0; i < samplesPerBar; i++) {
-      const idx = sampleStart + i;
-      if (idx >= left.length) break;
-      const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
-      const abs = Math.abs(sample);
-      if (abs > max) max = abs;
+    const chunkEndX = Math.min(totalWidth, currentX + barsPerChunk * barWidth);
+
+    for (let x = currentX; x < chunkEndX; x += barWidth) {
+      const timeAtPixel = x / pps;
+      if (timeAtPixel > buffer.duration) {
+        currentX = totalWidth;
+        return; // done
+      }
+
+      const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
+      let max = 0;
+      for (let i = 0; i < samplesPerBar; i++) {
+        const idx = sampleStart + i;
+        if (idx >= left.length) break;
+        const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
+        const abs = Math.abs(sample);
+        if (abs > max) max = abs;
+      }
+
+      // Per-bar frequency coloring via zero-crossing rate analysis
+      const barColor = getBarColor(left, right, sampleStart, samplesPerBar);
+      ctx.fillStyle = barColor;
+
+      const barHeight = max * amp;
+      if (isTop) {
+        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+      } else {
+        ctx.fillRect(x, centerY, barWidth, barHeight);
+      }
     }
 
-    const barHeight = max * amp;
-    if (isTop) {
-      ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
-    } else {
-      ctx.fillRect(x, centerY, barWidth, barHeight);
-    }
-  }
+    currentX = chunkEndX;
 
-  return canvas;
+    if (currentX < totalWidth) {
+      frameId = requestAnimationFrame(processChunk);
+    }
+  };
+
+  frameId = requestAnimationFrame(processChunk);
+
+  return {
+    canvas,
+    cancel: () => {
+      cancelled = true;
+      cancelAnimationFrame(frameId);
+    },
+  };
 }
 
 /**
@@ -212,11 +286,12 @@ function drawBeatGrid(
   }
 }
 
-function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: number): void {
+function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: number, isPhaseAligned?: boolean): void {
   const centerPixel = width / 2;
-  ctx.shadowColor = '#ffffff';
-  ctx.shadowBlur = 10;
-  ctx.strokeStyle = '#ffffff';
+  const color = isPhaseAligned ? '#00FF00' : '#ffffff';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = isPhaseAligned ? 20 : 10;
+  ctx.strokeStyle = color;
   ctx.lineWidth = 2;
 
   ctx.beginPath();
@@ -224,7 +299,7 @@ function drawPlayhead(ctx: CanvasRenderingContext2D, width: number, height: numb
   ctx.lineTo(centerPixel, height);
   ctx.stroke();
 
-  ctx.fillStyle = '#ffffff';
+  ctx.fillStyle = color;
   ctx.beginPath();
   ctx.moveTo(centerPixel, height / 2 - 6);
   ctx.lineTo(centerPixel + 6, height / 2);
@@ -322,9 +397,14 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
 
   /**
    * Off-screen canvas cache.
-   * The expensive `buildBackgroundCanvas` call is skipped unless buffer, zoom, or
+   * The expensive chunked waveform build is skipped unless buffer, zoom, or
    * canvas height has changed since the last build.
    */
+  const bgBuildCancelRef = useRef<{
+    cancelA?: () => void;
+    cancelB?: () => void;
+  }>({});
+
   const bgStateRef = useRef<{
     canvasA: HTMLCanvasElement | null;
     canvasB: HTMLCanvasElement | null;
@@ -379,6 +459,10 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
+
+    // Capture the mutable build-cancel bag once so the cleanup closure satisfies
+    // the react-hooks/exhaustive-deps rule (same object, mutated in place).
+    const buildCancels = bgBuildCancelRef.current;
 
     let animationFrameId: number;
     let lastTime = performance.now();
@@ -443,26 +527,34 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
         bg.halfHeight !== halfHeight;
 
       if (needsA) {
+        buildCancels.cancelA?.();
         if (snapA.buffer) {
           // Cap pps so the background canvas never exceeds OFFSCREEN_MAX_WIDTH.
           const pps = Math.min(pixelsPerSecond, OFFSCREEN_MAX_WIDTH / snapA.buffer.duration);
-          bg.canvasA = buildBackgroundCanvas(snapA.buffer, halfHeight, pps, true);
+          const { canvas, cancel } = buildBackgroundCanvasChunked(snapA.buffer, halfHeight, pps, true);
+          bg.canvasA = canvas;
           bg.ppsA = pps;
+          buildCancels.cancelA = cancel;
         } else {
           bg.canvasA = null;
           bg.ppsA = pixelsPerSecond;
+          buildCancels.cancelA = undefined;
         }
         bg.bufferA = snapA.buffer;
       }
 
       if (needsB) {
+        buildCancels.cancelB?.();
         if (snapB.buffer) {
           const pps = Math.min(pixelsPerSecond, OFFSCREEN_MAX_WIDTH / snapB.buffer.duration);
-          bg.canvasB = buildBackgroundCanvas(snapB.buffer, halfHeight, pps, false);
+          const { canvas, cancel } = buildBackgroundCanvasChunked(snapB.buffer, halfHeight, pps, false);
+          bg.canvasB = canvas;
           bg.ppsB = pps;
+          buildCancels.cancelB = cancel;
         } else {
           bg.canvasB = null;
           bg.ppsB = pixelsPerSecond;
+          buildCancels.cancelB = undefined;
         }
         bg.bufferB = snapB.buffer;
       }
@@ -532,7 +624,7 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
       drawGhostPlayhead(ctx, width, halfHeight, halfHeight, playheadA - playheadB, pixelsPerSecond, phaseAlignment.isAligned);
 
       // 6. Playhead — always on top of everything.
-      drawPlayhead(ctx, width, height);
+      drawPlayhead(ctx, width, height, phaseAlignment.isAligned);
 
       animationFrameId = requestAnimationFrame(renderLoop);
     };
@@ -542,6 +634,8 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       cancelAnimationFrame(animationFrameId);
+      buildCancels.cancelA?.();
+      buildCancels.cancelB?.();
     };
   }, [zoom]);
 
@@ -564,10 +658,40 @@ export const ParallelWaveforms = memo(function ParallelWaveforms({ compact = fal
     ? (compact ? 'h-24' : 'h-48 md:h-64 xl:h-80')
     : (compact ? 'h-12' : 'h-24 md:h-32 xl:h-40');
 
+  const handleNeedleDrop = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const centerX = rect.width / 2;
+    const timeOffset = (clickX - centerX) / zoom;
+
+    const stateA = deckARef.current;
+    const stateB = deckBRef.current;
+    const crossfader = useMixerStore.getState().crossfader;
+
+    // Determine active deck: prefer playing deck, fall back to crossfader bias (A at center/left)
+    let activeDeckId: 'A' | 'B';
+    if (stateA.isPlaying && !stateB.isPlaying) {
+      activeDeckId = 'A';
+    } else if (stateB.isPlaying && !stateA.isPlaying) {
+      activeDeckId = 'B';
+    } else {
+      activeDeckId = crossfader <= 0 ? 'A' : 'B';
+    }
+
+    const snap = activeDeckId === 'A' ? stateA : stateB;
+    const targetTime = snap.currentTime + timeOffset;
+    const maxTime = snap.duration > 0 ? snap.duration : Infinity;
+    const newTime = Math.max(0, Math.min(maxTime, targetTime));
+    useDeckStore.getState().setCurrentTime(activeDeckId, newTime);
+  }, [zoom]);
+
   return (
     <div
       ref={containerRef}
       className={`${heightClass} w-full flex-shrink-0 bg-slate-900/40 backdrop-blur-xl border border-white/5 rounded-xl shadow-2xl border-b-accent/20 overflow-hidden relative transition-all duration-300`}
+      onPointerDown={handleNeedleDrop}
     >
       <canvas
         ref={canvasRef}

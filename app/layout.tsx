@@ -2,7 +2,6 @@ import type {Metadata, Viewport} from 'next';
 import { Archivo_Black, Inter, JetBrains_Mono } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import './globals.css'; // Global styles
-import { Antigravity } from '@/components/visuals/Antigravity';
 
 const archivoBlack = Archivo_Black({
   subsets: ['latin'],
@@ -37,7 +36,6 @@ export default function RootLayout({children}: {children: React.ReactNode}) {
   return (
     <html lang="en" className={`dark ${archivoBlack.variable} ${inter.variable} ${jetbrainsMono.variable} font-sans`}>
       <body className="bg-background font-sans text-slate-100 min-h-screen flex flex-col antialiased transition-colors duration-300" suppressHydrationWarning>
-        <Antigravity />
         {children}
         <Toaster position="bottom-right" toastOptions={{
           style: {
