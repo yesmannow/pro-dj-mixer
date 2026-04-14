@@ -102,11 +102,11 @@ function SidebarItem({
 
 // ─── Track Row ────────────────────────────────────────────────────────────────
 const TrackRow = memo(function TrackRow({
-  track, index, isMatch, isHarmonicMatch, compact, isPlaying,
+  track, index, isMatch, isHarmonicMatch, compact, isPlaying, isSelected,
   onDragStart, onLoadDeckA, onLoadDeckB, onAddCueA, onAddCueB,
 }: {
   track: Track; index: number; isMatch?: boolean; isHarmonicMatch?: boolean;
-  compact?: boolean; isPlaying?: boolean;
+  compact?: boolean; isPlaying?: boolean; isSelected?: boolean;
   onDragStart: (e: React.DragEvent, t: Track) => void;
   onLoadDeckA: (t: Track) => void; onLoadDeckB: (t: Track) => void;
   onAddCueA: (t: Track) => void; onAddCueB: (t: Track) => void;
@@ -138,12 +138,15 @@ const TrackRow = memo(function TrackRow({
           : isHarmonicMatch
           ? 'border-blue-500/15 bg-blue-500/5 hover:bg-blue-500/8'
           : 'border-white/5 hover:bg-white/5',
+        isSelected && 'bg-white/15 border-white/20 shadow-[inset_0_0_12px_rgba(255,255,255,0.05)] ring-1 ring-white/10 z-10'
       )}
     >
       {/* Index / Playing Indicator */}
       <td className="w-8 pl-3 pr-1 py-2.5">
         {isPlaying ? (
           <Disc3 className="w-3.5 h-3.5 text-yellow-400 animate-spin" />
+        ) : isSelected ? (
+          <ChevronRight className="w-3.5 h-3.5 text-studio-gold animate-pulse" />
         ) : (
           <span className="text-[10px] font-mono text-white/20 group-hover:text-white/40 tabular-nums">{index + 1}</span>
         )}
@@ -264,6 +267,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
   const analyzerWorkerRef = useRef<Worker | null>(null);
   const decodeAudioCtxRef = useRef<AudioContext | null>(null);
   const [computedBpms, setComputedBpms] = useState<Record<number, string>>({});
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
   const {
     tracks, processingTracks, loadTracks, seedLibrary,
@@ -364,6 +368,54 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
     const t = setTimeout(() => setHoldVaultHud(false), 700);
     return () => clearTimeout(t);
   }, [holdVaultHud, isVaultSyncActive, vaultReadyCount, vaultTotalCount]);
+
+  // Reset selection on filter change
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [displayTracks.length]);
+
+  // Global keyboard shortcuts for Library
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      // Ignore if typing in any input/textarea
+      if (document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement) {
+        if (e.key === 'Enter') {
+          // Blur the input to let keyboard navigation take over
+          (document.activeElement as HTMLElement).blur();
+          setSelectedIndex(0);
+        }
+        return;
+      }
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => Math.min(prev + 1, displayTracks.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => Math.max(prev - 1, 0));
+      } else if (e.key.toLowerCase() === 'a') {
+        const t = displayTracks[selectedIndex];
+        if (t) {
+          useDeckStore.getState().loadTrack('A', t);
+          toast.success(`Loaded "${t.title}" to Deck A`, { icon: '🎧', style: { background: '#0f172a', color: '#D4AF37', border: '1px solid rgba(212,175,55,0.3)' } });
+        }
+      } else if (e.key.toLowerCase() === 'b') {
+        const t = displayTracks[selectedIndex];
+        if (t) {
+          useDeckStore.getState().loadTrack('B', t);
+          toast.success(`Loaded "${t.title}" to Deck B`, { icon: '🎧', style: { background: '#0f172a', color: '#E11D48', border: '1px solid rgba(225,29,72,0.3)' } });
+        }
+      } else if (e.key === 'Enter') {
+        const t = displayTracks[selectedIndex];
+        if (t) {
+          useDeckStore.getState().loadTrack('A', t);
+          toast.success(`Loaded to Deck A`);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [displayTracks, selectedIndex]);
 
   useEffect(() => {
     const h = (e: Event) => {
@@ -751,7 +803,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
               {isGridView ? (
                 /* ── Grid View ─────────────────────────────────────────── */
                 <div className="p-3 grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2">
-                  {displayTracks.map((track) => {
+                  {displayTracks.map((track, idx) => {
                     const isMatch = isSmartMatchEnabled && masterDeck.track
                       ? isSmartMatch(masterDeck.track.key, Number(masterDeck.track.bpm) || 120, track.key, Number(track.bpm) || 120)
                       : false;
@@ -762,6 +814,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                         onDragStart={(e) => handleTrackDragStart(e, track)}
                         className={clsx(
                           'group cursor-grab active:cursor-grabbing rounded-xl overflow-hidden border transition-all',
+                          idx === selectedIndex ? 'ring-2 ring-yellow-500 scale-[1.02] shadow-[0_0_20px_rgba(212,175,55,0.3)] z-10 bg-white/10' :
                           isMatch
                             ? 'border-yellow-500/40 bg-yellow-500/8 shadow-[0_0_12px_rgba(212,175,55,0.2)]'
                             : 'border-white/8 bg-white/3 hover:bg-white/6 hover:border-white/15'
@@ -832,6 +885,7 @@ export const Library = memo(function Library({ compact = false }: Readonly<{ com
                           key={track.id}
                           track={{ ...track, bpm: (track.id && computedBpms[track.id]) || track.bpm }}
                           index={index}
+                          isSelected={index === selectedIndex}
                           isMatch={isMatch}
                           isHarmonicMatch={isHM}
                           compact={compact}
