@@ -40,6 +40,35 @@
     opacity: 0.9;
   }
 
+  .glass-panel {
+    background: rgba(15, 15, 20, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+  }
+
+  .glass-panel-gold {
+    background: rgba(15, 15, 20, 0.9);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(212, 175, 55, 0.15);
+    box-shadow: 0 0 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(212, 175, 55, 0.05);
+  }
+
+  .accent-glow {
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.2);
+  }
+
+  .record-led-blink {
+    animation: pulse-red 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse-red {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.9); }
+  }
+
   /* Brutalist Rubberized Pad Styles used in PerformancePads.tsx */
   .mpc-grid-container {
     background: #050505;

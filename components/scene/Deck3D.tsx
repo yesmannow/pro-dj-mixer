@@ -7,7 +7,7 @@ import { useDeckStore } from '@/store/deckStore';
 import { useDeckAudio } from '@/hooks/useDeckAudio';
 import { Button3D } from './Button3D';
 import { Fader3D } from './Fader3D';
-import { Text, useTexture } from '@react-three/drei';
+import { Text, useTexture, SpotLight } from '@react-three/drei';
 
 interface Deck3DProps {
   deckId: 'A' | 'B';
@@ -35,6 +35,7 @@ export function Deck3D({ deckId, position }: Deck3DProps) {
   const lastTimeRef = useRef(currentTime);
   const rotationRef = useRef(0);
   const glowLightRef = useRef<THREE.PointLight>(null);
+  const spotLightRef = useRef<THREE.SpotLight>(null);
 
   useFrame((state, delta) => {
     // Determine rotation based on playback
@@ -50,7 +51,20 @@ export function Deck3D({ deckId, position }: Deck3DProps) {
     if (glowLightRef.current) {
       const audioData = getAudioData?.();
       const intensity = audioData ? Math.max(0.2, audioData.rms * 6.0) : 0.2;
-      glowLightRef.current.intensity = THREE.MathUtils.lerp(glowLightRef.current.intensity, intensity, 10 * delta);
+      glowLightRef.current.intensity = THREE.MathUtils.lerp(glowLightRef.current.intensity, intensity * 2, 12 * delta);
+    }
+    
+    // Reactive SpotLight pulse & subtle movement
+    if (spotLightRef.current) {
+      const audioData = getAudioData?.();
+      const intensity = audioData ? Math.max(0.5, audioData.rms * 15.0) : 0.5;
+      spotLightRef.current.intensity = THREE.MathUtils.lerp(spotLightRef.current.intensity, intensity, 8 * delta);
+      
+      // Subtle oscillation when playing
+      if (isPlaying) {
+        spotLightRef.current.position.x = Math.sin(state.clock.elapsedTime * 0.5) * 2;
+        spotLightRef.current.position.z = Math.cos(state.clock.elapsedTime * 0.3) * 2 + 2;
+      }
     }
   });
 
@@ -58,8 +72,21 @@ export function Deck3D({ deckId, position }: Deck3DProps) {
 
   return (
     <group position={position}>
-      {/* Audio Reactive Light */}
-      <pointLight ref={glowLightRef} position={[0, 1, 0]} color={deckId === 'A' ? '#D4AF37' : '#00e5ff'} distance={8} intensity={0.2} decay={2} />
+      {/* Audio Reactive Glow */}
+      <pointLight ref={glowLightRef} position={[0, 1, 0]} color={deckId === 'A' ? '#D4AF37' : '#E11D48'} distance={8} intensity={0.2} decay={2} />
+      
+      {/* Dynamic Dramatic Spotlight */}
+      <SpotLight
+        ref={spotLightRef}
+        position={[0, 12, 4]}
+        angle={0.4}
+        penumbra={0.6}
+        distance={25}
+        intensity={2}
+        color={deckId === 'A' ? '#FFD700' : '#FF003C'}
+        castShadow
+        shadow-bias={-0.0001}
+      />
 
       {/* Chassis */}
       <mesh receiveShadow position={[0, 0, 0]}>

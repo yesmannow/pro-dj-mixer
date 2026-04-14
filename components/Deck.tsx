@@ -589,6 +589,15 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
     setLoopBars(bars);
   };
 
+  const handleBeatJump = useCallback((beats: number) => {
+    if (!track) return;
+    const bpm = currentBpm || 120;
+    const beatDuration = 60 / bpm;
+    const jumpSeconds = beats * beatDuration;
+    const engine = AudioEngine.getInstance();
+    engine.seekTo(deckId, currentTime + jumpSeconds);
+  }, [deckId, track, currentBpm, currentTime]);
+
   const formatTime = (s: number) => {
     if (Number.isNaN(s) || s < 0) return '00:00';
     return `${Math.floor(s / 60).toString().padStart(2, '0')}:${Math.floor(s % 60).toString().padStart(2, '0')}`;
@@ -698,6 +707,10 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
       {/* ── Stem Controls ────────────────────────────────────────────────── */}
       <div className="px-3 pointer-events-auto">
         <StemControls deckId={deckId} deckTheme={deckTheme} stems={stems} onToggle={stem => toggleStem(deckId, stem)} />
+      </div>
+
+      <div className="px-3 pointer-events-auto">
+        <BeatjumpControls onJump={handleBeatJump} />
       </div>
 
       {/* ── Loop Controls ────────────────────────────────────────────────── */}
@@ -818,6 +831,41 @@ export function Deck({ deckId, compact = false }: Readonly<DeckProps>) {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function BeatjumpControls({ onJump }: { onJump: (beats: number) => void }) {
+  const jumps = [1, 4, 8, 16];
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-[8px] uppercase tracking-widest text-white/25 text-center">BEAT JUMP</span>
+      <div className="flex items-center gap-1">
+        <div className="flex flex-1 items-center gap-0.5">
+          {[...jumps].reverse().map(beats => (
+            <button
+              key={`back-${beats}`}
+              type="button"
+              onClick={() => onJump(-beats)}
+              className="flex-1 py-1 rounded text-[8px] font-black font-mono transition-all border border-white/5 bg-black/20 text-white/40 hover:text-studio-gold hover:border-studio-gold/30"
+            >
+              -{beats}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-1 items-center gap-0.5">
+          {jumps.map(beats => (
+            <button
+              key={`fwd-${beats}`}
+              type="button"
+              onClick={() => onJump(beats)}
+              className="flex-1 py-1 rounded text-[8px] font-black font-mono transition-all border border-white/5 bg-black/20 text-white/40 hover:text-studio-gold hover:border-studio-gold/30"
+            >
+              +{beats}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

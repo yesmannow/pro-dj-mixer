@@ -7,15 +7,19 @@ export type WaveformStyle    = 'bars' | 'line' | 'mirror';
 export type BpmDisplayMode   = 'integer' | 'decimal' | 'both';
 export type LibraryLayout    = 'list' | 'grid' | 'compact';
 export type MobileNavTab     = 'DECK_A' | 'MIXER' | 'DECK_B';
+export type LayoutMode       = 'PERFORMANCE' | 'LIBRARY' | 'MIXER';
 
 interface UIState {
   // ── Panel Visibility ───────────────────────────────────────────────────────
   isWaveformVisible:   boolean;
+  precisionMode:       boolean;
   isLibraryVisible:    boolean;
   isDeckAVisible:      boolean;
   isDeckBVisible:      boolean;
   isMixerVisible:      boolean;
   isAddMusicModalOpen: boolean;
+  layoutMode:          LayoutMode;
+  isRecording:         boolean;
 
   // ── Appearance ─────────────────────────────────────────────────────────────
   accentColor: string;
@@ -59,6 +63,8 @@ interface UIState {
   toggleDeckB:          () => void;
   toggleMixer:          () => void;
   setAddMusicModalOpen: (open: boolean) => void;
+  setLayoutMode:        (mode: LayoutMode) => void;
+  setIsRecording:       (recording: boolean) => void;
 
   setAccentColor:       (color: string) => void;
 
@@ -94,11 +100,14 @@ export const useUIStore = create<UIState>()(
     (set) => ({
       // Visibility
       isWaveformVisible:   true,
+      precisionMode:       false,
       isLibraryVisible:    true,
       isDeckAVisible:      true,
       isDeckBVisible:      true,
       isMixerVisible:      true,
       isAddMusicModalOpen: false,
+      layoutMode:          'PERFORMANCE',
+      isRecording:         false,
 
       // Appearance
       accentColor: '#D4AF37',
@@ -137,11 +146,14 @@ export const useUIStore = create<UIState>()(
 
       // ── Action implementations ─────────────────────────────────────────────
       toggleWaveform:       () => set((s) => ({ isWaveformVisible: !s.isWaveformVisible })),
+      togglePrecisionMode:  () => set((s) => ({ precisionMode: !s.precisionMode })),
       toggleLibrary:        () => set((s) => ({ isLibraryVisible: !s.isLibraryVisible })),
       toggleDeckA:          () => set((s) => ({ isDeckAVisible: !s.isDeckAVisible })),
       toggleDeckB:          () => set((s) => ({ isDeckBVisible: !s.isDeckBVisible })),
       toggleMixer:          () => set((s) => ({ isMixerVisible: !s.isMixerVisible })),
       setAddMusicModalOpen: (open) => set({ isAddMusicModalOpen: open }),
+      setLayoutMode:        (mode) => set({ layoutMode: mode }),
+      setIsRecording:       (recording) => set({ isRecording: recording }),
 
       setAccentColor:      (color) => set({ accentColor: color }),
 

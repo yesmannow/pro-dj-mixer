@@ -341,6 +341,48 @@ export class AudioEngine {
     return freshSource;
   }
 
+  public seekTo(deckId: 'A' | 'B', time: number) {
+    const deck = this.decks[deckId];
+    if (!deck?.buffer || !deck.stemInput || !deck.deckGain) return;
+
+    const now = this.context.currentTime;
+    const targetTime = Math.max(0, Math.min(time, deck.buffer.duration));
+
+    // If not playing, just update the position for the next play
+    if (!deck.isPlaying) {
+      deck.pauseTime = targetTime;
+      deck.onPauseTime?.(targetTime);
+      return;
+    }
+
+    // If playing, we need to swap sources smoothly
+    deck.deckGain.gain.cancelScheduledValues(now);
+    deck.deckGain.gain.setValueAtTime(deck.deckGain.gain.value, now);
+    deck.deckGain.gain.linearRampToValueAtTime(0, now + 0.003);
+
+    if (deck.source) {
+      try {
+        deck.source.stop(now + 0.003);
+      } catch {
+        // Source might already be stopped
+      }
+      deck.source.disconnect();
+    }
+
+    const freshSource = this.createPitchLockedSource(deckId, deck.buffer);
+    freshSource.playbackRate.value = deck.playbackRate;
+    freshSource.connect(deck.stemInput);
+    freshSource.start(now + 0.003, targetTime);
+
+    deck.deckGain.gain.setValueAtTime(0, now + 0.003);
+    deck.deckGain.gain.linearRampToValueAtTime(1, now + 0.006);
+
+    deck.source = freshSource;
+    deck.pauseTime = targetTime;
+    deck.onSourceSwap?.(freshSource);
+    deck.onPauseTime?.(targetTime);
+  }
+
   public stopStutter(deckId: 'A' | 'B', time: number) {
     const deck = this.decks[deckId];
     if (!deck?.deckGain) return;

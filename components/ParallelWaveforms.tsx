@@ -68,11 +68,9 @@ const ZCR_BASS_THRESHOLD = 0.1;
 /** Zero-crossing rate threshold below which a bar is classified as mid (above = high) */
 const ZCR_MID_THRESHOLD = 0.3;
 /** Waveform bar color for bass-dominant regions */
-const COLOR_BASS = '#FF003C';
-/** Waveform bar color for mid-dominant regions */
-const COLOR_MID = '#FFD700';
-/** Waveform bar color for high-dominant regions */
-const COLOR_HIGH = '#FFFFFF';
+const COLOR_BASS = '#FF003C'; // Drums: Crimson/Red
+const COLOR_MID  = '#FFD700'; // Instruments: Gold
+const COLOR_HIGH = '#E0F2FE'; // Vocals: White/Cyan-tint
 
 /**
  * Determines the color of a waveform bar based on zero-crossing rate analysis.
@@ -155,24 +153,56 @@ function buildBackgroundCanvasChunked(
       }
 
       const sampleStart = Math.floor(timeAtPixel * buffer.sampleRate);
-      let max = 0;
+      const sampleEnd = Math.min(left.length, sampleStart + samplesPerBar);
+      let maxBass = 0, maxMid = 0, maxHigh = 0;
+
+      // Simple 3-band crossover analysis per bar
       for (let i = 0; i < samplesPerBar; i++) {
         const idx = sampleStart + i;
-        if (idx >= left.length) break;
-        const sample = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
-        const abs = Math.abs(sample);
-        if (abs > max) max = abs;
+        if (idx >= left.length - 1) break;
+
+        const s = right ? (left[idx] + right[idx]) * 0.5 : left[idx];
+        const next = right ? (left[idx+1] + right[idx+1]) * 0.5 : left[idx+1];
+        const abs = Math.abs(s);
+        
+        // Proxy for high-freq: high difference between consecutive samples
+        const delta = Math.abs(next - s);
+        
+        if (delta > 0.15) {
+          if (abs > maxHigh) maxHigh = abs;
+        } else if (delta < 0.04) {
+          if (abs > maxBass) maxBass = abs;
+        } else {
+          if (abs > maxMid) maxMid = abs;
+        }
       }
 
-      // Per-bar frequency coloring via zero-crossing rate analysis
-      const barColor = getBarColor(left, right, sampleStart, samplesPerBar);
-      ctx.fillStyle = barColor;
+      const totalMax = Math.max(maxBass, maxMid, maxHigh, 0.001);
 
-      const barHeight = max * amp;
+      // Render layered or colored bar
+      const barHeight = totalMax * amp;
+      const xPos = x;
+      
+      // Background canvas always renders the "combined" view for the non-precision mode
+      // or we can bake the layered view if we want it to be permanent.
+      // Let's bake a layered view with distinct alpha/colors.
+      
+      const drawBand = (h: number, color: string, yOrigin: number, sign: number) => {
+        if (h < 0.5) return;
+        ctx.fillStyle = color;
+        ctx.fillRect(xPos, yOrigin, barWidth, h * sign);
+      };
+
       if (isTop) {
-        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+        // Deck A: draws upwards from centerY
+        drawBand(maxBass * amp, COLOR_BASS, centerY, -1);
+        drawBand(maxMid * amp, COLOR_MID, centerY - (maxBass * amp * 0.6), -1);
+        drawBand(maxHigh * amp, COLOR_HIGH, centerY - (maxBass * amp * 0.6 + maxMid * amp * 0.4), -1);
       } else {
-        ctx.fillRect(x, centerY, barWidth, barHeight);
+        // Deck B: draws downwards from centerY
+        drawBand(maxBass * amp, COLOR_BASS, centerY, 1);
+        drawBand(maxMid * amp, COLOR_MID, centerY + (maxBass * amp * 0.6), 1);
+        drawBand(maxHigh * amp, COLOR_HIGH, centerY + (maxBass * amp * 0.6 + maxMid * amp * 0.4), 1);
       }
     }
 

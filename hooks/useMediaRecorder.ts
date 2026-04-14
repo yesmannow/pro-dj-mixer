@@ -5,6 +5,7 @@ import { buildSessionState, saveSessionState, type SessionState } from '@/lib/sy
 import { useDeckStore } from '@/store/deckStore';
 import { useMixerStore } from '@/store/mixerStore';
 import { useTrackCueStore } from '@/store/trackCueStore';
+import { useUIStore } from '@/store/uiStore';
 
 interface RecordedTrackEvent {
   deckId: 'A' | 'B';
@@ -110,7 +111,7 @@ const encode24BitWav = (leftChannel: Float32Array, rightChannel: Float32Array, s
 };
 
 export function useMediaRecorder() {
-  const [isRecording, setIsRecording] = useState(false);
+  const { isRecording, setIsRecording } = useUIStore();
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const elapsedRef = useRef(0);

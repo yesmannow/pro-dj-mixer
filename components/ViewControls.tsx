@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { PanelTop, FolderOpen, Maximize, Minimize } from 'lucide-react';
+import { PanelTop, FolderOpen, Maximize, Minimize, Layout, Library, SlidersHorizontal } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useUIStore } from '@/store/uiStore';
 import { useMediaRecorder } from '@/hooks/useMediaRecorder';
@@ -23,6 +23,8 @@ export function ViewControls({ compact = false }: Readonly<{ compact?: boolean }
     toggleMixer,
     toggleDeckB,
     setIsLibraryOverlayOpen,
+    layoutMode,
+    setLayoutMode,
   } = useUIStore();
 
   const { isRecording, elapsedSeconds, startRecording, stopRecording } = useMediaRecorder();
@@ -108,6 +110,48 @@ export function ViewControls({ compact = false }: Readonly<{ compact?: boolean }
       >
         B
       </button>
+
+      <div className="w-px h-4 bg-slate-700 mx-1"></div>
+
+      {/* Workspace Switcher */}
+      <div className="flex items-center gap-1 bg-black/20 rounded-full p-1 border border-white/5">
+        <button
+          onClick={() => setLayoutMode('PERFORMANCE')}
+          className={clsx(
+            "p-1.5 rounded-full transition-all duration-300",
+            layoutMode === 'PERFORMANCE'
+              ? "text-accent bg-accent/20 shadow-[0_0_12px_rgba(212,175,55,0.3)]"
+              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+          )}
+          title="Performance View"
+        >
+          <Layout className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setLayoutMode('MIXER')}
+          className={clsx(
+            "p-1.5 rounded-full transition-all duration-300",
+            layoutMode === 'MIXER'
+              ? "text-accent bg-accent/20 shadow-[0_0_12px_rgba(212,175,55,0.3)]"
+              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+          )}
+          title="Mixer View"
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+        </button>
+        <button
+          onClick={() => setLayoutMode('LIBRARY')}
+          className={clsx(
+            "p-1.5 rounded-full transition-all duration-300",
+            layoutMode === 'LIBRARY'
+              ? "text-accent bg-accent/20 shadow-[0_0_12px_rgba(212,175,55,0.3)]"
+              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+          )}
+          title="Library View"
+        >
+          <Library className="w-4 h-4" />
+        </button>
+      </div>
 
       <div className="w-px h-4 bg-slate-700 mx-1"></div>
 
